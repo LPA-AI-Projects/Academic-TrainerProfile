@@ -1,0 +1,10 @@
+Course Title: ITIL 4 Foundation for Service Excellence
+
+This course focuses on:
+- service value system
+- guiding principles
+- incident, problem, and change practices
+- continual improvement and governance alignment
+
+Audience:
+IT managers, service owners, and team leads.

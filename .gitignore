@@ -1,0 +1,15 @@
+.env
+*.env
+**/.env
+__pycache__/
+*.pyc
+.pytest_cache/
+.mypy_cache/
+.venv/
+venv/
+node_modules/
+backend/storage/
+backend/*.db
+backend/*.sqlite*
+backend/playwright-report/
+backend/test-results/
