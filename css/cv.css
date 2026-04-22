@@ -401,10 +401,10 @@
 /* Decorative blob — bottom-right, bleeds off the corner */
 .cv-p3-deco {
   position: absolute;
-  right: -54px;
-  bottom: -46px;
-  width: 103px;
-  height: 205px;
+  right: -3px;
+  bottom: -53px;
+  width: 205px;
+  height: 103px;
   pointer-events: none;
   transform: rotate(180deg);
   z-index: 2;
