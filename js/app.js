@@ -491,28 +491,20 @@ async function initAIGeneration() {
       }
 
       applyGeneratedProfile(data.generated_profile || {});
-      if (data.pdf_generation_error) {
-        console.warn('[trainer-profile] PDF generation error', data.pdf_generation_error);
-      }
-      const exportUi = data?.export?.trainer_profile_ui;
-      const exportPrint = data?.export?.trainer_profile_print;
-      const exportPdf = data?.export?.trainer_profile_pdf;
-      const exportPdfFile = data?.export?.pdf_url || data?.pdf_url;
-      if (exportUi) {
-        const pdfWarn = data.pdf_generation_error
-          ? `\nPDF not saved: ${data.pdf_generation_error}`
-          : '';
-        setStatus(
-          `Profile generated. Job ID: ${data.id}\n` +
-          `Open UI: ${exportUi}\n` +
-          (exportPrint ? `Open + print: ${exportPrint}\n` : '') +
-          (exportPdfFile ? `PDF file URL: ${exportPdfFile}\n` : '') +
-          (exportPdf ? `PDF API URL: ${exportPdf}` : '') +
-          pdfWarn
-        );
-      } else {
-        setStatus(`Profile generated successfully. Job ID: ${data.id}`);
-      }
+      const zid = (data.zoho_record_id || zohoRecordId || '').trim();
+      const apiBaseEnc = encodeURIComponent(baseUrl.replace(/\/$/, ''));
+      const exportUi = zid
+        ? `${baseUrl.replace(/\/$/, '')}/trainer-profile/index.html?job=${encodeURIComponent(zid)}&api_base=${apiBaseEnc}`
+        : '';
+      const exportPrint = exportUi ? `${exportUi}&autoprint=1` : '';
+      const exportPdfFile = (data.pdf_url || '').trim();
+      setStatus(
+        `Status: ${data.status || 'completed'}\n` +
+        `Zoho record: ${zid}\n` +
+        (exportPdfFile ? `PDF: ${exportPdfFile}\n` : '') +
+        (exportUi ? `Open UI: ${exportUi}\n` : '') +
+        (exportPrint ? `Open + print: ${exportPrint}` : '')
+      );
     } catch (error) {
       setStatus(error?.message || 'Generation failed.', true);
     } finally {

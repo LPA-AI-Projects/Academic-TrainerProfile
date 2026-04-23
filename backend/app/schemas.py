@@ -61,18 +61,12 @@ class ProfileExportLinks(BaseModel):
 
 
 class GenerateProfileResponse(BaseModel):
-    id: str
+    """Minimal webhook-friendly payload from POST /api/v1/profiles/generate."""
+
     status: str
     zoho_record_id: str
-    provider: str
-    model_name: str
-    generated_profile: GeneratedProfilePayload
-    # Stable URL pattern `/pdfs/{job_id}.pdf` (file may not exist yet if PDF generation failed).
     pdf_url: str
-    export: ProfileExportLinks
-    pdf_generation_error: str | None = None
-    created_at: datetime
-    updated_at: datetime
+    generated_profile: GeneratedProfilePayload
 
 
 class JobStatusResponse(BaseModel):

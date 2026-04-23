@@ -211,3 +211,4 @@ backend/storage/
 backend/playwright-report/
 backend/test-results/
 node_modules/
+backend/*.db

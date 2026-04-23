@@ -70,8 +70,31 @@ def _export_links_for_job(request: Request, job_id: str) -> ProfileExportLinks:
 
 
 def _public_base_url(request: Request) -> str:
+    request_base = str(request.base_url).rstrip("/")
+    request_host = request.url.hostname or ""
+    request_port = request.url.port
+
     if settings.public_base_url:
-        return str(settings.public_base_url).rstrip("/")
+        configured = str(settings.public_base_url).rstrip("/")
+        # In local dev, stale PUBLIC_BASE_URL ports (e.g. 8000 vs 8010) break
+        # Playwright PDF rendering because the preview page fetches the wrong API.
+        if request_host in {"127.0.0.1", "localhost", "0.0.0.0", "::1", "[::]"}:
+            try:
+                from urllib.parse import urlparse
+
+                parsed = urlparse(configured)
+                configured_host = (parsed.hostname or "").lower()
+                configured_port = parsed.port
+                if configured_host in {"127.0.0.1", "localhost"} and configured_port != request_port:
+                    logger.warning(
+                        "PUBLIC_BASE_URL port mismatch configured=%s request_base=%s; using request base for this call",
+                        configured,
+                        request_base,
+                    )
+                    return request_base
+            except Exception:
+                logger.exception("Failed parsing PUBLIC_BASE_URL=%s; falling back to configured value", configured)
+        return configured
     # Starlette's request.base_url is fine for most cases, but browsers cannot load http://0.0.0.0:port.
     if request.url.hostname in {"0.0.0.0", None}:
         port = f":{request.url.port}" if request.url.port else ""
@@ -131,38 +154,32 @@ def generate_profile(payload: GenerateProfileRequest, request: Request, db: Sess
         job.pdf_generation_error or "",
     )
     return GenerateProfileResponse(
-        id=job.id,
         status=job.status,
         zoho_record_id=job.zoho_record_id,
-        provider=job.provider,
-        model_name=job.model_name,
-        generated_profile=job.generated_profile,
         pdf_url=export.pdf_url,
-        export=export,
-        pdf_generation_error=job.pdf_generation_error,
-        created_at=job.created_at,
-        updated_at=job.updated_at,
+        generated_profile=job.generated_profile,
     )
 
 
-@app.get("/api/v1/profiles/{job_id}", response_model=JobStatusResponse)
-def get_profile_job(job_id: str, request: Request, db: Session = Depends(get_db)):
-    logger.info("API_JOB_GET_REQUEST job_id=%s", job_id)
-    job = db.get(TrainerProfileJob, job_id)
+@app.get("/api/v1/profiles/{profile_ref}", response_model=JobStatusResponse)
+def get_profile_job(profile_ref: str, request: Request, db: Session = Depends(get_db)):
+    logger.info("API_JOB_GET_REQUEST profile_ref=%s", profile_ref)
+    job = db.get(TrainerProfileJob, profile_ref)
     if not job:
-        logger.warning("API_JOB_GET_NOT_FOUND job_id=%s", job_id)
-        raise HTTPException(status_code=404, detail="Job not found")
-
-    if job.status == "completed" and job.generated_profile:
-        try:
-            ensure_job_pdf_on_disk(db=db, job=job, public_base_url=_public_base_url(request))
-            db.refresh(job)
-        except Exception as exc:
-            logger.exception("Failed ensuring PDF exists for job_id=%s", job_id)
-            job.pdf_generation_error = str(exc)
-            db.add(job)
-            db.commit()
-            db.refresh(job)
+        # Backward compatible: if it's not a direct job id, treat it as Zoho record id.
+        # Return latest job for that record.
+        job = (
+            db.query(TrainerProfileJob)
+            .filter(TrainerProfileJob.zoho_record_id == profile_ref)
+            .order_by(TrainerProfileJob.created_at.desc())
+            .first()
+        )
+    if not job:
+        logger.warning("API_JOB_GET_NOT_FOUND profile_ref=%s", profile_ref)
+        raise HTTPException(status_code=404, detail="Job not found for provided reference")
+    # IMPORTANT: Do not trigger PDF generation from status endpoint.
+    # The trainer-profile HTML used by Playwright fetches this endpoint; auto-generating
+    # PDF here can recursively invoke PDF rendering and lead to repeated timeouts.
 
     export = _export_links_for_job(request, job.id) if job.status == "completed" else None
     pdf_url = export.pdf_url if export else None

@@ -3,9 +3,6 @@ from pathlib import Path
 from docx import Document
 from pypdf import PdfReader
 
-from ..config import get_settings
-
-
 TEXT_EXTENSIONS = {".txt", ".md", ".rtf"}
 
 
@@ -46,15 +43,5 @@ def read_text_from_path(file_path: str) -> str:
 
 
 def truncate_inputs(cv_text: str, outline_texts: list[str]) -> tuple[str, list[str]]:
-    settings = get_settings()
-    cv_trimmed = cv_text[: settings.max_cv_chars]
-    outlines_trimmed = [txt[: settings.max_outline_chars] for txt in outline_texts]
-    total = len(cv_trimmed) + sum(len(x) for x in outlines_trimmed)
-    if total <= settings.max_total_input_chars:
-        return cv_trimmed, outlines_trimmed
-
-    overflow = total - settings.max_total_input_chars
-    cv_safe_floor = min(len(cv_trimmed), max(8000, settings.max_cv_chars // 3))
-    cv_new_len = max(cv_safe_floor, len(cv_trimmed) - overflow)
-    cv_trimmed = cv_trimmed[:cv_new_len]
-    return cv_trimmed, outlines_trimmed
+    # Intentionally pass through full extracted text without clipping.
+    return cv_text, outline_texts
