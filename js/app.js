@@ -228,6 +228,17 @@ function initZoom() {
   const scrollEl = document.querySelector('.preview-scroll-area');
   let naturalH   = 0;
 
+  if (isPdfRenderMode()) {
+    if (scaler) {
+      scaler.style.transform = 'none';
+      scaler.style.marginBottom = '0';
+      scaler.style.transformOrigin = 'top center';
+    }
+    if (zoomLbl) zoomLbl.textContent = '100%';
+    state.zoom = 1.0;
+    return;
+  }
+
   function measureNaturalHeight() {
     /* Temporarily remove transform to measure true layout height */
     const prev = scaler.style.transform;
@@ -330,14 +341,27 @@ function parseMultilinePaths(value) {
 
 function applyGeneratedProfile(profile) {
   const safeProfile = profile || {};
+  const unique = (items) => Array.from(new Set((items || []).map(v => String(v || '').trim()).filter(Boolean)));
+  const cap = (items, maxItems) => unique(items).slice(0, maxItems);
   const titles = Array.isArray(safeProfile.professional_titles)
     ? safeProfile.professional_titles.filter(Boolean)
     : [];
   const profileText = safeProfile.profile || '';
 
-  const guessedName = guessTrainerNameFromProfileText(profileText);
-  if (guessedName) {
-    setInputValue('f-name', guessedName);
+  // Keep a stable display label to match the template style and avoid exposing real names.
+  setInputValue('f-name', 'This Trainer');
+
+  const csatVal = Number(safeProfile.csat_score);
+  if (Number.isFinite(csatVal)) {
+    setInputValue('f-csat', csatVal.toFixed(1));
+  } else {
+    setInputValue('f-csat', DEFAULTS.csatScore);
+  }
+  const batchesVal = Number(safeProfile.batches_delivered);
+  if (Number.isFinite(batchesVal)) {
+    setInputValue('f-batches', String(Math.round(batchesVal)));
+  } else {
+    setInputValue('f-batches', DEFAULTS.batches);
   }
 
   setInputValue('f-tagline', titles.join(' | '));
@@ -350,7 +374,7 @@ function applyGeneratedProfile(profile) {
   setInputValue('f-bio2', paraSplit.length > 1 ? paraSplit.slice(1).join('\n\n') : '');
 
   if (listManagers.programs) {
-    listManagers.programs.setItems(safeProfile.programs_trained || []);
+    listManagers.programs.setItems(cap(safeProfile.programs_trained, 20));
   }
   if (listManagers.training) {
     const trainingItems = Array.isArray(safeProfile.training_delivered) && safeProfile.training_delivered.length
@@ -360,31 +384,34 @@ function applyGeneratedProfile(profile) {
           ...(safeProfile.certificates || []),
           ...(safeProfile.board_experience || []),
         ];
-    listManagers.training.setItems(trainingItems);
+    listManagers.training.setItems(cap(trainingItems, 18));
   }
   if (listManagers.strengths) {
     const strengths = Array.isArray(safeProfile.key_skills) && safeProfile.key_skills.length
       ? safeProfile.key_skills
       : (safeProfile.core_competencies || []);
-    listManagers.strengths.setItems(strengths);
+    listManagers.strengths.setItems(cap(strengths, 16));
   }
   if (listManagers.experience) {
-    listManagers.experience.setItems(safeProfile.professional_experience || []);
+    listManagers.experience.setItems(cap(safeProfile.professional_experience, 10));
   }
   if (listManagers.awards) {
     const awards = [
       ...(safeProfile.awards_and_recognitions || []),
-      ...(safeProfile.education || []),
       ...(safeProfile.certificates || []),
       ...(safeProfile.board_experience || []),
     ];
-    listManagers.awards.setItems(awards);
+    listManagers.awards.setItems(cap(awards, 8));
   }
 }
 
 function getQueryParam(name) {
   const params = new URLSearchParams(window.location.search);
   return params.get(name);
+}
+
+function isPdfRenderMode() {
+  return (getQueryParam('render_mode') || '').trim().toLowerCase() === 'pdf';
 }
 
 function resolveApiBase() {
@@ -591,7 +618,9 @@ document.addEventListener('DOMContentLoaded', () => {
   }
 
   initCollapsibles();
-  initZoom();
+  if (!isPdfRenderMode()) {
+    initZoom();
+  }
   initPrint();
   initReset();
   initAIGeneration();

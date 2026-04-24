@@ -33,6 +33,8 @@ class GenerateProfileRequest(BaseModel):
 
 class GeneratedProfilePayload(BaseModel):
     professional_titles: list[str] = Field(default_factory=list)
+    csat_score: float | None = None
+    batches_delivered: int | None = None
     profile: str = ""
     programs_trained: list[str] = Field(default_factory=list)
     education: list[str] = Field(default_factory=list)

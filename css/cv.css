@@ -12,6 +12,11 @@
   --cv-font: 'Helvetica Neue', Arial, Helvetica, sans-serif;
 }
 
+html {
+  -webkit-text-size-adjust: 100%;
+  text-size-adjust: 100%;
+}
+
 /* ── Base page ─────────────────────────────────────────────── */
 .cv-page {
   position: relative;
@@ -23,6 +28,11 @@
   color: var(--cv-text-dark);
   box-shadow: 0 4px 24px rgba(0, 0, 0, 0.14);
   flex-shrink: 0;
+}
+
+.cv-page,
+.cv-page * {
+  box-sizing: border-box;
 }
 
 /* ═══════════════════════════════════════════════════════════
@@ -491,6 +501,8 @@
     margin: 0;
     padding: 0;
     background: white;
+    -webkit-print-color-adjust: exact;
+    print-color-adjust: exact;
   }
 
   .builder-form-panel,
@@ -511,15 +523,25 @@
     padding: 0 !important;
     background: white !important;
   }
+  .preview-scroll-area {
+    padding: 0 !important;
+    margin: 0 !important;
+    display: block !important;
+    overflow: visible !important;
+  }
 
   .cv-preview-scaler {
     transform: none !important;
     transform-origin: unset !important;
+    margin-bottom: 0 !important;
+    width: auto !important;
   }
 
   .cv-preview-wrapper {
     display: block !important;
+    width: 210mm !important;
     padding: 0 !important;
+    margin: 0 auto !important;
     background: white !important;
     gap: 0 !important;
     overflow: visible !important;
@@ -529,9 +551,14 @@
     box-shadow: none !important;
     page-break-after: always;
     break-after: page;
+    break-inside: avoid;
     margin: 0 !important;
     width: 210mm !important;
     height: 297mm !important;
+    overflow: hidden !important;
+  }
+  .cv-page-label {
+    display: none !important;
   }
 
   .cv-page:last-child {

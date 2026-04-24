@@ -24,7 +24,7 @@ def render_trainer_profile_pdf(*, public_base_url: str, job_id: str) -> bytes:
 
     base = public_base_url.rstrip("/")
     api_base = quote(base, safe=":/?&=")
-    url = f"{base}/trainer-profile/index.html?job={job_id}&api_base={api_base}"
+    url = f"{base}/trainer-profile/index.html?job={job_id}&api_base={api_base}&render_mode=pdf"
     logger.info("PDF_RENDER_START job_id=%s url=%s", job_id, url)
     t0 = time.perf_counter()
 
@@ -77,6 +77,7 @@ def render_trainer_profile_pdf(*, public_base_url: str, job_id: str) -> bytes:
             pdf = page.pdf(
                 format="A4",
                 print_background=True,
+                prefer_css_page_size=True,
                 margin={"top": "0", "right": "0", "bottom": "0", "left": "0"},
             )
             logger.info(

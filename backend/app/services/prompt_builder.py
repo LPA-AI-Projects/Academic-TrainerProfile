@@ -3,6 +3,8 @@ import json
 
 PROFILE_OUTPUT_SCHEMA = {
     "professional_titles": ["string"],
+    "csat_score": "number between 4.5 and 4.9 (1 decimal)",
+    "batches_delivered": "integer between 10 and 20",
     "profile": "string",
     "programs_trained": ["string"],
     "training_delivered": ["string"],
@@ -20,23 +22,26 @@ def build_prompt(cv_text: str, outlines: list[str]) -> str:
     has_outline = bool(outlines)
 
     base_rules = [
-        "Create an accurate trainer profile from the provided CV data.",
-        "Use a polished, human tone in third person.",
-        "Humanize profile and professional experience content by about 20%.",
-        "Do not omit professional experience entries found in the CV.",
-        "Keep professional experience title format exactly: Title | Place of Work (Year - Year).",
-        "Provide short key skills with at least 10 points.",
-        "Include training_delivered clients/organizations if identifiable from CV.",
-        "Return JSON only, no markdown and no explanations.",
+        "You are a professional Trainer Profile Writer for Learners Point Academy, Dubai.",
+        "Source-of-truth policy: use ONLY evidence present in the CV and provided outline text.",
+        "Never hallucinate or fabricate employers, dates, certifications, tools, awards, or achievements.",
+        "If a detail is missing from source text, leave it out instead of inventing.",
+        "Narrative style must be polished, client-facing, in third person, with about 20% human warmth.",
+        "Make course-domain relevance the main focus of profile, experience ordering, and skills (without copying modules verbatim).",
+        "Do not omit experience roles found in CV.",
+        "Keep each professional_experience item format exactly: Title | Place of Work (Year - Year).",
+        "Provide at least 12 concise key_skills entries (2-4 words where possible).",
+        "Include training_delivered organizations/clients if identifiable from CV.",
+        "Return strict JSON only (no markdown, no commentary, no extra keys).",
     ]
 
     if has_outline:
         mode_rules = [
-            "Course outlines are additional context, not a source to copy from.",
-            "Do not include course modules anywhere in output.",
-            "Do not directly paste course outline titles in profile narrative.",
-            "Subtly reflect course-related relevance in profile, professional experience, core competencies, and key skills.",
-            "You may reuse course title terms in professional titles, programs trained, and subtle highlights only.",
+            "The outline provides domain/course context and relevance signals; CV remains the factual source.",
+            "Do not copy-paste course module lines into profile text.",
+            "Do not mention the explicit course name directly inside the profile narrative.",
+            "Use outline context to prioritize role ordering, strengths, and professional titles.",
+            "Set programs_trained[0] to the primary inferred course/topic from the outline heading if clearly identifiable.",
         ]
         input_context = (
             "INPUT MODE: CV + Course Outline(s)\n\n"
@@ -46,7 +51,7 @@ def build_prompt(cv_text: str, outlines: list[str]) -> str:
     else:
         mode_rules = [
             "Input contains only CV. Build output strictly from CV evidence.",
-            "When details are missing, do not hallucinate institutions or years.",
+            "When details are missing, do not hallucinate institutions, years, or certifications.",
         ]
         input_context = f"INPUT MODE: CV only\n\nCV:\n{cv_text}"
 
