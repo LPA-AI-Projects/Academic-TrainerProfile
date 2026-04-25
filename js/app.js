@@ -225,72 +225,26 @@ function initCollapsibles() {
 function initZoom() {
   const scaler   = document.querySelector('.cv-preview-scaler');
   const zoomLbl  = document.querySelector('.preview-zoom-label');
-  const scrollEl = document.querySelector('.preview-scroll-area');
-  let naturalH   = 0;
-
-  if (isPdfRenderMode()) {
-    if (scaler) {
-      scaler.style.transform = 'none';
-      scaler.style.marginBottom = '0';
-      scaler.style.transformOrigin = 'top center';
-    }
-    if (zoomLbl) zoomLbl.textContent = '100%';
-    state.zoom = 1.0;
-    return;
-  }
-
-  function measureNaturalHeight() {
-    /* Temporarily remove transform to measure true layout height */
-    const prev = scaler.style.transform;
+  if (scaler) {
+    // Keep design preview on fixed A4 canvas; no transform-based distortion.
     scaler.style.transform = 'none';
     scaler.style.marginBottom = '0';
-    naturalH = scaler.getBoundingClientRect().height;
-    scaler.style.transform = prev;
-  }
-
-  function applyZoom() {
-    if (!scaler) return;
-    const z = state.zoom;
-    scaler.style.transform = `scale(${z})`;
     scaler.style.transformOrigin = 'top center';
-
-    /* Compensate layout height: transform:scale doesn't affect flow.
-       margin-bottom = naturalH * (z - 1) pulls up (z<1) or expands (z>1) */
-    if (naturalH > 0) {
-      scaler.style.marginBottom = `${naturalH * (z - 1)}px`;
-    }
-
-    if (zoomLbl) zoomLbl.textContent = Math.round(z * 100) + '%';
+    scaler.style.width = '595px';
   }
-
-  function fitToPanel() {
-    if (!scrollEl || !scaler) return;
-    measureNaturalHeight();
-    const panelW   = scrollEl.clientWidth - 56; /* 28px padding each side */
-    const computed = Math.min(1.5, Math.max(0.3, panelW / 595));
-    state.zoom     = Math.round(computed * 10) / 10;
-    applyZoom();
-  }
+  if (zoomLbl) zoomLbl.textContent = '100%';
+  state.zoom = 1.0;
 
   const btnIn  = document.getElementById('btn-zoom-in');
   const btnOut = document.getElementById('btn-zoom-out');
   const btnFit = document.getElementById('btn-zoom-fit');
 
-  if (btnIn)  btnIn.addEventListener('click', () => {
-    measureNaturalHeight();
-    state.zoom = Math.min(2, +(state.zoom + 0.1).toFixed(1));
-    applyZoom();
+  [btnIn, btnOut, btnFit].forEach(btn => {
+    if (btn) {
+      btn.disabled = true;
+      btn.title = 'Preview locked at 100% for pixel-perfect alignment';
+    }
   });
-  if (btnOut) btnOut.addEventListener('click', () => {
-    measureNaturalHeight();
-    state.zoom = Math.max(0.2, +(state.zoom - 0.1).toFixed(1));
-    applyZoom();
-  });
-  if (btnFit) btnFit.addEventListener('click', fitToPanel);
-
-  /* Initial fit — wait one frame for layout to settle */
-  requestAnimationFrame(() => requestAnimationFrame(fitToPanel));
-  window.addEventListener('resize', fitToPanel);
 }
 
 /* ── Print ───────────────────────────────────────────────── */
@@ -318,6 +272,14 @@ function escapeHtml(str) {
     .replace(/"/g, '&quot;');
 }
 
+function toUniqueItems(items) {
+  return Array.from(new Set((items || []).map(v => String(v || '').trim()).filter(Boolean)));
+}
+
+function normalizeList(items, maxItems) {
+  return toUniqueItems(items).slice(0, maxItems);
+}
+
 function setInputValue(inputId, value) {
   const el = document.getElementById(inputId);
   if (!el) return;
@@ -341,15 +303,13 @@ function parseMultilinePaths(value) {
 
 function applyGeneratedProfile(profile) {
   const safeProfile = profile || {};
-  const unique = (items) => Array.from(new Set((items || []).map(v => String(v || '').trim()).filter(Boolean)));
-  const cap = (items, maxItems) => unique(items).slice(0, maxItems);
   const titles = Array.isArray(safeProfile.professional_titles)
     ? safeProfile.professional_titles.filter(Boolean)
     : [];
   const profileText = safeProfile.profile || '';
 
-  // Keep a stable display label to match the template style and avoid exposing real names.
-  setInputValue('f-name', 'This Trainer');
+  const guessedName = guessTrainerNameFromProfileText(profileText);
+  setInputValue('f-name', guessedName || 'This Trainer');
 
   const csatVal = Number(safeProfile.csat_score);
   if (Number.isFinite(csatVal)) {
@@ -374,7 +334,14 @@ function applyGeneratedProfile(profile) {
   setInputValue('f-bio2', paraSplit.length > 1 ? paraSplit.slice(1).join('\n\n') : '');
 
   if (listManagers.programs) {
-    listManagers.programs.setItems(cap(safeProfile.programs_trained, 20));
+    const programs = normalizeList(safeProfile.programs_trained, 16);
+    listManagers.programs.setItems(programs);
+    const p1 = programs.slice(0, 7);
+    const p2 = programs.slice(7, 16);
+    const p1El = document.getElementById('cv-p1-programs-ul');
+    const p2El = document.getElementById('cv-p2-programs-ul');
+    if (p1El) p1El.innerHTML = p1.map(item => `<li>${escapeHtml(item)}</li>`).join('');
+    if (p2El) p2El.innerHTML = p2.map(item => `<li>${escapeHtml(item)}</li>`).join('');
   }
   if (listManagers.training) {
     const trainingItems = Array.isArray(safeProfile.training_delivered) && safeProfile.training_delivered.length
@@ -384,16 +351,16 @@ function applyGeneratedProfile(profile) {
           ...(safeProfile.certificates || []),
           ...(safeProfile.board_experience || []),
         ];
-    listManagers.training.setItems(cap(trainingItems, 18));
+    listManagers.training.setItems(normalizeList(trainingItems, 14));
   }
   if (listManagers.strengths) {
     const strengths = Array.isArray(safeProfile.key_skills) && safeProfile.key_skills.length
       ? safeProfile.key_skills
       : (safeProfile.core_competencies || []);
-    listManagers.strengths.setItems(cap(strengths, 16));
+    listManagers.strengths.setItems(normalizeList(strengths, 12));
   }
   if (listManagers.experience) {
-    listManagers.experience.setItems(cap(safeProfile.professional_experience, 10));
+    listManagers.experience.setItems(normalizeList(safeProfile.professional_experience, 6));
   }
   if (listManagers.awards) {
     const awards = [
@@ -401,7 +368,7 @@ function applyGeneratedProfile(profile) {
       ...(safeProfile.certificates || []),
       ...(safeProfile.board_experience || []),
     ];
-    listManagers.awards.setItems(cap(awards, 8));
+    listManagers.awards.setItems(normalizeList(awards, 4));
   }
 }
 

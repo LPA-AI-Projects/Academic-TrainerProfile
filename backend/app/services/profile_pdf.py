@@ -59,15 +59,25 @@ def render_trainer_profile_pdf(*, public_base_url: str, job_id: str) -> bytes:
             # `networkidle` can hang on local dev servers; `load` is more reliable here.
             page.goto(url, wait_until="load", timeout=120_000)
 
-            # Wait for job-driven content (do not require programs > 0; LLM may return sparse lists).
+            # Wait for rendered content. Support both:
+            # 1) dynamic builder template selectors, and
+            # 2) fixed HTML templates without those specific ids/classes.
             page.wait_for_function(
                 """
                 () => {
-                  const name = document.querySelector('.cv-p1-name')?.textContent?.trim() || '';
+                  const hasPages = document.querySelectorAll('.cv-page, .page').length >= 1;
+                  if (!hasPages) return false;
+
+                  const dynName = document.querySelector('.cv-p1-name')?.textContent?.trim() || '';
+                  const staticName = document.querySelector('h1')?.textContent?.trim() || '';
+                  const name = dynName || staticName;
                   if (name.length < 2) return false;
-                  const programs = document.querySelectorAll('#cv-p1-programs-ul li, #cv-p2-programs-ul li').length;
-                  const training = document.querySelectorAll('#cv-p2-training-ul li').length;
-                  return programs > 0 || training > 0 || name.length >= 3;
+
+                  const dynPrograms = document.querySelectorAll('#cv-p1-programs-ul li, #cv-p2-programs-ul li').length;
+                  const dynTraining = document.querySelectorAll('#cv-p2-training-ul li').length;
+                  const genericItems = document.querySelectorAll('section.page ul li, .cv-page ul li').length;
+
+                  return dynPrograms > 0 || dynTraining > 0 || genericItems > 0 || name.length >= 3;
                 }
                 """,
                 timeout=120_000,

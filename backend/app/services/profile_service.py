@@ -31,6 +31,39 @@ def _as_string_list(value: object) -> list[str]:
     return [str(v).strip() for v in value if str(v).strip()]
 
 
+def _compact_list(items: list[str], *, max_items: int) -> list[str]:
+    out: list[str] = []
+    for item in items:
+        compact = item.replace("\n", " ").strip()
+        if compact and compact not in out:
+            out.append(compact)
+        if len(out) >= max_items:
+            break
+    return out
+
+
+def _normalize_profile_text(value: object) -> str:
+    text = str(value or "").strip()
+    if not text:
+        return ""
+    # Keep model-provided paragraphing when present.
+    if "\n\n" in text:
+        return text
+    # If model returns one long paragraph, split into two readable blocks
+    # to match fixed-layout page flow in the HTML template.
+    sentences = [s.strip() for s in text.replace("\n", " ").split(". ") if s.strip()]
+    if len(sentences) < 4:
+        return text
+    split_at = max(2, len(sentences) // 2)
+    first = ". ".join(sentences[:split_at]).strip()
+    second = ". ".join(sentences[split_at:]).strip()
+    if first and not first.endswith("."):
+        first += "."
+    if second and not second.endswith("."):
+        second += "."
+    return f"{first}\n\n{second}".strip()
+
+
 def normalize_profile_payload(raw: dict) -> dict:
     csat_raw = raw.get("csat_score")
     batches_raw = raw.get("batches_delivered")
@@ -45,35 +78,39 @@ def normalize_profile_payload(raw: dict) -> dict:
         batches = random.randint(10, 20)
     batches = min(20, max(10, batches))
 
+    professional_titles = _compact_list(_as_string_list(raw.get("professional_titles")), max_items=4)
+    programs_trained = _compact_list(_as_string_list(raw.get("programs_trained")), max_items=14)
+    training_delivered = _compact_list(_as_string_list(raw.get("training_delivered")), max_items=12)
+    professional_experience = _compact_list(_as_string_list(raw.get("professional_experience")), max_items=6)
+    key_skills = _compact_list(_as_string_list(raw.get("key_skills")), max_items=10)
+    awards_and_recognitions = _compact_list(_as_string_list(raw.get("awards_and_recognitions")), max_items=6)
+    certificates = _compact_list(_as_string_list(raw.get("certificates")), max_items=6)
+
+    bio_para1 = str(raw.get("bio_para1") or "").strip()
+    bio_para2 = str(raw.get("bio_para2") or "").strip()
+    combined_profile = _normalize_profile_text(raw.get("profile", ""))
+    if bio_para1 or bio_para2:
+        profile_text = f"{bio_para1}\n\n{bio_para2}".strip()
+    else:
+        profile_text = combined_profile
+
     normalized = {
-        "professional_titles": _as_string_list(raw.get("professional_titles")),
+        "professional_titles": professional_titles,
         "csat_score": csat,
         "batches_delivered": batches,
-        "profile": str(raw.get("profile", "")).strip(),
-        "programs_trained": _as_string_list(raw.get("programs_trained")),
-        "training_delivered": _as_string_list(raw.get("training_delivered")),
+        "profile": profile_text,
+        "programs_trained": programs_trained,
+        "training_delivered": training_delivered,
         "education": _as_string_list(raw.get("education")),
-        "professional_experience": _as_string_list(raw.get("professional_experience")),
+        "professional_experience": professional_experience,
         "core_competencies": _as_string_list(raw.get("core_competencies")),
-        "certificates": _as_string_list(raw.get("certificates")),
-        "awards_and_recognitions": _as_string_list(raw.get("awards_and_recognitions")),
+        "certificates": certificates,
+        "awards_and_recognitions": awards_and_recognitions,
         "board_experience": _as_string_list(raw.get("board_experience")),
-        "key_skills": _as_string_list(raw.get("key_skills")),
+        "key_skills": key_skills,
     }
     if not normalized["training_delivered"]:
         normalized["training_delivered"] = _as_string_list(raw.get("board_experience"))
-    if len(normalized["key_skills"]) < 10:
-        complement = [
-            *normalized["core_competencies"],
-            *normalized["programs_trained"],
-            "Stakeholder communication",
-            "Learning facilitation",
-        ]
-        for skill in complement:
-            if skill not in normalized["key_skills"]:
-                normalized["key_skills"].append(skill)
-            if len(normalized["key_skills"]) >= 10:
-                break
     return normalized
 
 

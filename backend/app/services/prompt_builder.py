@@ -2,10 +2,13 @@ import json
 
 
 PROFILE_OUTPUT_SCHEMA = {
+    "full_name": "string (max 18 characters, use 'This Trainer' if needed)",
     "professional_titles": ["string"],
     "csat_score": "number between 4.5 and 4.9 (1 decimal)",
     "batches_delivered": "integer between 10 and 20",
-    "profile": "string",
+    "bio_para1": "string (70-85 words)",
+    "bio_para2": "string (70-85 words)",
+    "profile": "string (optional combined fallback)",
     "programs_trained": ["string"],
     "training_delivered": ["string"],
     "education": ["string"],
@@ -23,15 +26,25 @@ def build_prompt(cv_text: str, outlines: list[str]) -> str:
 
     base_rules = [
         "You are a professional Trainer Profile Writer for Learners Point Academy, Dubai.",
+        "Generate content for a premium fixed 3-page A4 brochure layout.",
         "Source-of-truth policy: use ONLY evidence present in the CV and provided outline text.",
         "Never hallucinate or fabricate employers, dates, certifications, tools, awards, or achievements.",
         "If a detail is missing from source text, leave it out instead of inventing.",
         "Narrative style must be polished, client-facing, in third person, with about 20% human warmth.",
+        "In profile narrative sections, prefer the phrasing 'The Trainer' / 'This Trainer' instead of personal names.",
         "Make course-domain relevance the main focus of profile, experience ordering, and skills (without copying modules verbatim).",
         "Do not omit experience roles found in CV.",
         "Keep each professional_experience item format exactly: Title | Place of Work (Year - Year).",
-        "Provide at least 12 concise key_skills entries (2-4 words where possible).",
+        "STRICT LENGTH RULES: full_name max 18 chars; professional_titles max 4 short titles.",
+        "Bio must be provided as bio_para1 and bio_para2, each 50-55 words.",
+        "programs_trained: exactly 14 items, each max 4 words.",
+        "training_delivered: max 12 items, each max 3 words, company/client short names only.",
+        "key_skills: exactly 10 items, each max 2 words.",
+        "professional_experience: max 6 items, each max 52 characters.",
+        "awards_and_recognitions: max 6 items, each max 70 characters.",
+        "Avoid repetition and generic filler. Prefer concise premium corporate wording.",
         "Include training_delivered organizations/clients if identifiable from CV.",
+        "Do not map education entries into awards_and_recognitions.",
         "Return strict JSON only (no markdown, no commentary, no extra keys).",
     ]
 

@@ -1,14 +1,12 @@
 /* ═══════════════════════════════════════════════════════════
    CV Page Styles — Trainer CV (Learners Point)
-   Source: Figma file 6PMhHqsa2SvYkD7PmF6Zcl
    ═══════════════════════════════════════════════════════════ */
 
-/* Design tokens */
 :root {
   --cv-primary: #2e9d91;
-  --cv-section-bg: rgba(79, 113, 242, 0.08);
+  --cv-section-bg: #eef1fb;
   --cv-text-dark: #333333;
-  --cv-text-body: #141414;
+  --cv-text-body: #222222;
   --cv-font: 'Helvetica Neue', Arial, Helvetica, sans-serif;
 }
 
@@ -24,9 +22,9 @@ html {
   height: 842px;
   background: #ffffff;
   overflow: hidden;
-  font-family: var(--cv-font);
+  font-family: 'Inter', 'Helvetica Neue', Arial, sans-serif;
   color: var(--cv-text-dark);
-  box-shadow: 0 4px 24px rgba(0, 0, 0, 0.14);
+  box-shadow: 0 4px 24px rgba(0,0,0,0.14);
   flex-shrink: 0;
 }
 
@@ -39,13 +37,13 @@ html {
    PAGE 1  (A4 - 10)
    ═══════════════════════════════════════════════════════════ */
 
-/* Decorative blob — top-left, bleeds off the corner */
+/* Decorative blobs — top-left corner */
 .cv-p1-deco {
   position: absolute;
-  left: -3px;
-  top: -53px;
-  width: 205px;
-  height: 103px;
+  left: 0;
+  top: 0;
+  width: 160px;
+  height: 90px;
   pointer-events: none;
   z-index: 2;
 }
@@ -53,111 +51,108 @@ html {
 /* Learners Point logo — top-right */
 .cv-p1-logo {
   position: absolute;
-  left: 408px;
+  right: 24px;
   top: 24px;
-  width: 166px;
-  height: 22px;
   display: flex;
   align-items: center;
-  gap: 5px;
+  gap: 7px;
   z-index: 2;
 }
 .cv-p1-logo-icon {
-  width: 39px;
-  height: 22px;
-  object-fit: contain;
+  width: 28px;
+  height: 28px;
 }
 .cv-p1-logo-text {
-  font-size: 17.9px;
+  font-size: 15px;
   color: #333;
   white-space: nowrap;
-  font-weight: 400;
+  font-weight: 500;
+  letter-spacing: 0.2px;
 }
 
 /* CSAT / Batches badge — top-right teal banner */
 .cv-p1-csat {
   position: absolute;
-  left: 293px;
+  right: 0;
   top: 84px;
-  width: 343px;
-  background: var(--cv-primary);
-  border-radius: 0 0 0 16px;
-  padding: 11.8px 20px;
+  background: #1f9e95;
+  border-radius: 0 0 0 18px;
+  padding: 10px 22px;
   color: white;
   font-size: 14px;
   font-weight: 700;
   display: flex;
-  gap: 6px;
+  gap: 4px;
   align-items: center;
   white-space: nowrap;
-  z-index: 1;
+  z-index: 5;
 }
 
 /* Trainer name */
 .cv-p1-name {
   position: absolute;
   left: 40px;
-  top: 90px;
-  font-size: 34px;
+  top: 82px;
+  font-size: 54px;
   font-weight: 700;
-  color: #333;
-  line-height: normal;
+  color: #222;
+  line-height: 1;
+  letter-spacing: -1px;
   margin: 0;
-  z-index: 1;
+  z-index: 5;
 }
 
 /* Title / tagline */
 .cv-p1-tagline {
   position: absolute;
   left: 40px;
-  top: 147px;
-  width: 481px;
-  font-size: 14px;
-  font-weight: 500;
+  top: 154px;
+  width: 515px;
+  font-size: 14.5px;
+  font-weight: 600;
   color: #333;
-  line-height: 18px;
+  line-height: 22px;
   margin: 0;
 }
 
 /* "TRAINER PROFILE" vertical sidebar label */
 .cv-p1-section-label {
   position: absolute;
-  left: 41px;
-  top: 203px;
-  width: 17px;
-  height: 216px;
+  left: 10px;
+  top: 245px;
+  width: 30px;
+  height: 240px;
   display: flex;
   align-items: center;
   justify-content: center;
 }
 .cv-p1-section-label span {
-  flex-shrink: 0;
-  flex-grow: 0;
   transform: rotate(-90deg);
   white-space: nowrap;
-  font-size: 24px;
+  font-size: 22px;
   font-weight: 700;
-  color: #333;
-  line-height: 33.75px;
+  color: #222;
+  line-height: 1;
   transform-origin: center;
+  letter-spacing: 1px;
 }
 
 /* Bio paragraphs */
 .cv-p1-bio {
   position: absolute;
-  left: 86px;
-  top: 203px;
-  width: 467px;
-  height: 233px;
+  left: 60px;
+  top: 240px;
+  width: 500px;
+  height: 235px;
   display: flex;
   flex-direction: column;
-  gap: 21px;
+  gap: 16px;
   overflow: hidden;
 }
 .cv-p1-bio p {
-  font-size: 12px;
-  line-height: 14px;
-  color: #141414;
+  font-size: 12.5px;
+  line-height: 19px;
+  color: #222;
   margin: 0;
   font-weight: 400;
 }
@@ -165,51 +160,54 @@ html {
 /* Vertical separator line */
 .cv-p1-divider {
   position: absolute;
-  left: 48px;
-  top: 444px;
+  left: 50px;
+  top: 508px;
   width: 1px;
-  height: 380px;
-  background: #333;
-  opacity: 0.8;
+  height: 282px;
+  background: #b8c0d4;
 }
 
 /* Program section — light blue background */
 .cv-p1-programs-bg {
   position: absolute;
-  left: 64px;
-  top: 452px;
-  width: 531px;
-  height: 390px;
-  background: var(--cv-section-bg);
+  left: 60px;
+  top: 516px;
+  width: 535px;
+  height: 275px;
+  background: #eef1fb;
+  z-index: 1;
   border-radius: 2px;
 }
 
 /* Program section — content */
 .cv-p1-programs {
   position: absolute;
-  left: 86px;
-  top: 481px;
-  width: 387px;
+  left: 80px;
+  top: 536px;
+  width: 485px;
+  z-index: 5;
 }
 .cv-p1-programs .cv-section-title {
-  font-size: 20px;
-  font-weight: 700;
+  font-size: 22px;
+  font-weight: 800;
   color: #333;
-  line-height: 33.75px;
-  margin: 0 0 0 0;
+  line-height: 1.2;
+  margin: 0 0 12px 0;
+  letter-spacing: 0.03em;
+  text-transform: uppercase;
 }
 .cv-p1-programs ul {
   list-style: disc;
   padding-left: 18px;
-  margin: 8px 0 0 0;
+  margin: 0;
   display: flex;
   flex-direction: column;
-  gap: 13px;
+  gap: 4px;
 }
 .cv-p1-programs ul li {
-  font-size: 12px;
+  font-size: 13px;
   color: #333;
-  line-height: 19px;
+  line-height: 22px;
   font-weight: 400;
 }
 
@@ -220,10 +218,10 @@ html {
 /* Top light-blue background — bleeds above page top */
 .cv-p2-top-bg {
   position: absolute;
-  left: 63px;
-  top: -21px;
-  width: 542px;
-  height: 335px;
+  left: 60px;
+  top: 0;
+  width: 535px;
+  height: 190px;
   background: var(--cv-section-bg);
   border-radius: 2px;
 }
@@ -231,9 +229,10 @@ html {
 /* Programs (continued) list */
 .cv-p2-programs {
   position: absolute;
-  left: 89px;
-  top: 48px;
-  width: 366px;
+  left: 80px;
+  top: 20px;
+  width: 460px;
+  z-index: 5;
 }
 .cv-p2-programs ul {
   list-style: disc;
@@ -241,48 +240,63 @@ html {
   margin: 0;
   display: flex;
   flex-direction: column;
-  gap: 12px;
+  gap: 4px;
 }
 .cv-p2-programs ul li {
-  font-size: 12px;
+  font-size: 12.5px;
   color: #333;
-  line-height: 19px;
+  line-height: 20px;
   font-weight: 400;
+}
+
+/* Vertical line — left side of page 2 (like page 1) */
+.cv-p2-divider {
+  position: absolute;
+  left: 50px;
+  top: 310px;
+  width: 1px;
+  height: 480px;
+  background: #b8c0d4;
 }
 
 /* Strengths — right-side background panel */
 .cv-p2-strengths-bg {
   position: absolute;
-  left: 355px;
-  top: 327px;
-  width: 255px;
-  height: 515px;
+  left: 348px;
+  top: 310px;
+  width: 247px;
+  height: 480px;
   background: var(--cv-section-bg);
+  z-index: 1;
   border-radius: 2px;
 }
 
 /* Training Delivered */
 .cv-p2-training {
   position: absolute;
-  left: 41px;
-  top: 384px;
-  width: 232px;
+  left: 60px;
+  top: 340px;
+  width: 265px;
   display: flex;
   flex-direction: column;
-  gap: 28px;
+  gap: 14px;
 }
 .cv-p2-training .cv-section-title {
   font-size: 20px;
   font-weight: 700;
   color: #333;
-  line-height: 33.75px;
-  text-transform: uppercase;
+  line-height: 1.3;
   margin: 0;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
 }
 .cv-p2-training ul {
   list-style: disc;
   padding-left: 18px;
   margin: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
 }
 .cv-p2-training ul li {
   font-size: 12px;
@@ -294,24 +308,30 @@ html {
 /* Strengths */
 .cv-p2-strengths {
   position: absolute;
-  left: 389px;
-  top: 357px;
-  width: 177px;
+  left: 370px;
+  top: 325px;
+  width: 198px;
+  z-index: 5;
   display: flex;
   flex-direction: column;
-  gap: 24px;
+  gap: 14px;
 }
 .cv-p2-strengths .cv-section-title {
   font-size: 20px;
   font-weight: 700;
   color: #333;
-  line-height: 33.75px;
+  line-height: 1.3;
   margin: 0;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
 }
 .cv-p2-strengths ul {
   list-style: disc;
   padding-left: 18px;
   margin: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
 }
 .cv-p2-strengths ul li {
   font-size: 12px;
@@ -324,27 +344,42 @@ html {
    PAGE 3  (A4 - 12)
    ═══════════════════════════════════════════════════════════ */
 
+/* Vertical line — left side page 3 */
+.cv-p3-divider {
+  position: absolute;
+  left: 50px;
+  top: 95px;
+  width: 1px;
+  height: 255px;
+  background: #b8c0d4;
+}
+
 /* Professional Experience */
 .cv-p3-experience {
   position: absolute;
-  left: 41px;
-  top: 73px;
-  width: 488px;
+  left: 60px;
+  top: 80px;
+  width: 515px;
   display: flex;
   flex-direction: column;
-  gap: 28px;
+  gap: 14px;
 }
 .cv-p3-experience .cv-section-title {
   font-size: 20px;
   font-weight: 700;
   color: #333;
-  line-height: 33.75px;
+  line-height: 1.3;
   margin: 0;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
 }
 .cv-p3-experience ul {
   list-style: disc;
   padding-left: 18px;
   margin: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
 }
 .cv-p3-experience ul li {
   font-size: 12px;
@@ -356,30 +391,42 @@ html {
 /* Honors & Awards — light-blue background */
 .cv-p3-awards-bg {
   position: absolute;
-  left: 41px;
-  top: 374px;
-  width: 568px;
-  height: 292px;
+  left: 40px;
+  top: 370px;
+  width: 555px;
+  height: 325px;
   background: var(--cv-section-bg);
   border-radius: 2px;
+}
+
+/* Honors & Awards left vertical line */
+.cv-p3-awards-divider {
+  position: absolute;
+  left: 75px;
+  top: 415px;
+  width: 1px;
+  height: 250px;
+  background: #b8c0d4;
 }
 
 /* Honors & Awards content */
 .cv-p3-awards {
   position: absolute;
-  left: 91px;
-  top: 419px;
-  width: 446px;
+  left: 90px;
+  top: 410px;
+  width: 460px;
   display: flex;
   flex-direction: column;
-  gap: 28px;
+  gap: 14px;
 }
 .cv-p3-awards .cv-section-title {
   font-size: 20px;
   font-weight: 700;
   color: #333;
-  line-height: 33.75px;
+  line-height: 1.3;
   margin: 0;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
 }
 .cv-p3-awards ul {
   list-style: disc;
@@ -392,7 +439,7 @@ html {
 .cv-p3-awards ul li {
   font-size: 12px;
   color: #333;
-  line-height: 16px;
+  line-height: 17px;
   font-style: italic;
   font-weight: 400;
 }
@@ -401,91 +448,96 @@ html {
 .cv-p3-cta {
   position: absolute;
   left: 41px;
-  top: 765px;
-  font-size: 12px;
+  top: 758px;
+  font-size: 12.5px;
   font-weight: 700;
   color: #333;
   margin: 0;
 }
 
-/* Decorative blob — bottom-right, bleeds off the corner */
+/* Decorative blobs — bottom-right corner */
 .cv-p3-deco {
   position: absolute;
-  right: -54px;
-  bottom: -46px;
-  width: 103px;
-  height: 205px;
+  right: 0;
+  bottom: 0;
+  width: 130px;
+  height: 130px;
   pointer-events: none;
-  transform: rotate(180deg);
   z-index: 2;
 }
 
 /* ═══════════════════════════════════════════════════════════
-   SHARED — Footer  (teal bar at y=792)
+   SHARED — Footer  (teal bar at bottom)
    ═══════════════════════════════════════════════════════════ */
 .cv-footer {
   position: absolute;
-  top: 792px;
+  bottom: 0;
+  left: 0;
+  width: 100%;
   height: 32px;
-  background: var(--cv-primary);
-  border-radius: 0 0 20px 0;
+  background: #1f9e95;
   display: flex;
   align-items: center;
-  z-index: 3;
+  justify-content: center;
+  color: #fff;
+  font-size: 12px;
+  font-weight: 600;
+  z-index: 50;
+  padding: 0 20px;
 }
-.cv-p1-footer { left: -30px; width: 534px; padding: 8px 10px 8px 83px; }
-.cv-p2-footer { left: -40px; width: 534px; padding: 8px 10px 8px 93px; }
-.cv-p3-footer { left: -38px; width: 534px; padding: 8px 10px 8px 91px; }
 
 .cv-footer-inner {
   display: flex;
   align-items: center;
-  gap: 35px;
+  justify-content: space-between;
   width: 100%;
+  max-width: 530px;
+  margin: 0 auto;
 }
 .cv-footer-contacts {
   display: flex;
   align-items: center;
-  gap: 35px;
-  flex: 1;
+  gap: 24px;
 }
 .cv-footer-item {
   display: flex;
   align-items: center;
-  gap: 4px;
-  font-size: 12px;
-  font-weight: 500;
+  gap: 5px;
+  font-size: 11.5px;
+  font-weight: 600;
   color: white;
   white-space: nowrap;
-}
-.cv-footer-item img {
-  width: 13px;
-  height: 13px;
-  object-fit: contain;
-  filter: brightness(10);
-}
-.cv-footer-item svg,
-.cv-footer-website svg {
-  flex-shrink: 0;
 }
 .cv-footer-website {
   display: flex;
   align-items: center;
-  gap: 4px;
+  gap: 5px;
 }
-.cv-footer-website img {
-  width: 13px;
-  height: 13px;
-  object-fit: contain;
-  filter: brightness(10);
-}
-.cv-footer-website a,
-.cv-footer-website span {
-  font-size: 12px;
-  font-weight: 500;
+.cv-footer-website span,
+.cv-footer-website a {
+  font-size: 11.5px;
+  font-weight: 600;
   color: white;
   text-decoration: underline;
   white-space: nowrap;
+}
+
+.cv-section-title {
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+}
+
+.cv-page ul {
+  margin: 0;
+  padding-left: 18px;
+}
+
+.cv-page li {
+  margin-bottom: 0;
+  line-height: 19px;
+  font-size: 12px;
+  white-space: normal;
+  word-break: break-word;
 }
 
 /* ═══════════════════════════════════════════════════════════
