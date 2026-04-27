@@ -1,250 +1,388 @@
-<!doctype html>
+<!DOCTYPE html>
 <html lang="en">
 <head>
-<meta charset="UTF-8" />
-<meta name="viewport" content="width=device-width, initial-scale=1.0" />
-<title>Trainer CV</title>
-<style>
-  * { box-sizing: border-box; }
-  html, body { margin: 0; padding: 0; }
-  body {
-    background: #ddd;
-    font-family: Inter, "Helvetica Neue", Arial, sans-serif;
-    color: #333;
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-  }
-  .page {
-    position: relative;
-    width: 210mm;
-    min-height: 297mm;
-    max-height: 297mm;
-    background: #fff;
-    overflow: hidden;
-    display: flex;
-    flex-direction: column;
-    margin: 12px 0;
-    box-shadow: 0 0 8px rgba(0,0,0,.15);
-    padding: 18mm 12mm 14mm;
-  }
-  .top-deco { position: absolute; left: -1mm; top: -14mm; width: 54mm; }
-  .bottom-deco { position: absolute; right: -14mm; bottom: -12mm; width: 27mm; }
-  .logo { width: 43mm; align-self: flex-end; }
-  .pill {
-    align-self: flex-end;
-    margin-top: 8mm;
-    background: #2e9d91;
-    color: #fff;
-    padding: 3mm 5mm;
-    border-radius: 0 0 0 5mm;
-    font-size: 4.2mm;
-    font-weight: 700;
-  }
-  .p1-main { display: grid; grid-template-rows: auto auto 1fr auto; gap: 4mm; flex: 1; min-height: 0; }
-  .p1-head h1 { margin: 0; font-size: 11mm; line-height: 1; }
-  .p1-tagline { margin-top: 3mm; font-size: 3.9mm; line-height: 1.25; }
-  .p1-bio-wrap { display: grid; grid-template-columns: 12mm 1fr; gap: 4mm; min-height: 0; }
-  .vertical-label {
-    writing-mode: vertical-rl;
-    transform: rotate(180deg);
-    font-size: 8mm;
-    font-weight: 700;
-    letter-spacing: 0.4px;
-  }
-  .p1-bio { font-size: 3.2mm; line-height: 1.45; overflow: hidden; display: flex; flex-direction: column; gap: 3mm; }
-  .p1-programs-bg { background: rgba(79,113,242,.08); padding: 4mm 6mm; min-height: 0; overflow: hidden; }
-  .section-title { margin: 0 0 2.5mm; font-weight: 700; font-size: 7mm; line-height: 1; }
-  ul { margin: 0; padding-left: 5mm; }
-  li { font-size: 3.2mm; line-height: 1.35; margin-bottom: 1.2mm; }
-  .footer {
-    margin-top: auto;
-    background: #2e9d91;
-    color: #fff;
-    height: 10mm;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    gap: 6mm;
-    font-size: 3.3mm;
-    border-radius: 0 0 4mm 0;
-  }
-  .footer img { width: 3.6mm; height: 3.6mm; vertical-align: -0.5mm; margin-right: 1.2mm; }
-
-  .p2-top-programs { background: rgba(79,113,242,.08); padding: 4mm 6mm; height: 88mm; overflow: hidden; }
-  .p2-main { display: grid; grid-template-columns: 58% 42%; gap: 6mm; flex: 1; min-height: 0; margin-top: 4mm; }
-  .p2-col, .p3-col { min-height: 0; display: flex; flex-direction: column; gap: 5mm; }
-  .p2-box, .p3-box { min-height: 0; overflow: hidden; }
-  .strengths-bg { background: rgba(79,113,242,.08); padding: 4mm; min-height: 0; overflow: hidden; }
-
-  .p3-main { display: grid; grid-template-rows: auto 1fr auto; gap: 6mm; flex: 1; min-height: 0; }
-  .p3-awards-bg { background: rgba(79,113,242,.08); padding: 5mm 6mm; min-height: 0; overflow: hidden; }
-  .p3-contact { font-size: 8mm; font-weight: 700; line-height: 1; transform: scale(.47); transform-origin: left top; }
-
-  @page { size: A4 portrait; margin: 0; }
-  @media print {
-    body { background: #fff; }
-    .page {
-      width: 210mm !important;
-      min-height: 297mm !important;
-      max-height: 297mm !important;
-      margin: 0 !important;
-      box-shadow: none !important;
-      break-after: page;
-      page-break-after: always;
+  <meta charset="UTF-8" />
+  <title>Trainer CV – Dynamic Full‑Page</title>
+  <style>
+    /* ══════════════════════════════════════════════════════════
+       EXACT STATIC DESIGN – 595×842 px canvas
+       All pixel values match the static reference.
+    ══════════════════════════════════════════════════════════ */
+    * {
+      box-sizing: border-box;
     }
-    .page:last-child { break-after: auto; page-break-after: auto; }
-  }
-</style>
+
+    :root {
+      /* 210mm x 297mm relative to legacy 595x842 template */
+      --a4-scale: 1.3333333333;
+    }
+
+    body {
+      margin: 0;
+      background: #e9edf2;
+      font-family: "Helvetica Neue", Helvetica, Arial, sans-serif;
+      color: #333;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 24px;
+      padding: 24px;
+      -webkit-font-smoothing: antialiased;
+    }
+
+    .page {
+      position: relative;
+      width: 210mm;
+      height: 297mm;
+      background: #fff;
+      overflow: hidden;
+      flex-shrink: 0;
+      margin: 0 0 24px 0;
+    }
+
+    .canvas {
+      position: absolute;
+      left: 0;
+      top: 0;
+      width: 595px;
+      height: 842px;
+      transform: scale(var(--a4-scale));
+      transform-origin: top left;
+    }
+
+    /* ── Shared elements ── */
+    .pill {
+      position: absolute;
+      left: 293px;
+      top: 84px;
+      width: 343px;
+      background: #2e9d91;
+      color: #fff;
+      padding: 11.8px 20px;
+      border-bottom-left-radius: 16px;
+      font-size: 14px;
+      font-weight: 700;
+    }
+
+    .small-dot {
+      position: absolute;
+      width: 205px;
+      height: 103px;
+      left: -3px;
+      top: -53px;
+    }
+
+    .light {
+      background: rgba(79, 113, 242, 0.08);
+      border-radius: 2px;
+      position: absolute;
+    }
+
+    .footer {
+      position: absolute;
+      left: -30px;
+      bottom: 18px;
+      width: 534px;
+      background: #2e9d91;
+      border-bottom-right-radius: 20px;
+      color: #fff;
+      font-size: 14px;
+      font-weight: 500;
+      padding: 8px 10px 8px 53px;
+      display: flex;
+      justify-content: center;
+      gap: 20px;
+      align-items: center;
+      line-height: 14px;
+    }
+
+    .footer img {
+      width: 15px;
+      height: 15px;
+      vertical-align: middle;
+      margin-right: 4px;
+    }
+
+    h1, h2, p { margin: 0; }
+
+    ul { margin: 0; padding-left: 18px; }
+
+    .title {
+      font-weight: 700;
+      font-size: 20px;
+      line-height: 33.75px;
+    }
+
+    .text12 { font-size: 12px; line-height: 19px; }
+    .text14 { font-size: 14px; line-height: 18px; }
+
+    /* ── Print: transform canvas to real A4 size ── */
+    @media print {
+      @page {
+        size: A4 portrait;
+        margin: 0;
+      }
+      body {
+        background: white;
+        padding: 0;
+        gap: 0;
+      }
+      .page {
+        box-shadow: none;
+        margin: 0 !important;
+        page-break-after: always;
+        break-after: page;
+        width: 210mm !important;
+        height: 297mm !important;
+      }
+      .canvas {
+        transform: scale(var(--a4-scale)) !important;
+        transform-origin: top left !important;
+      }
+      .page:last-child {
+        page-break-after: auto;
+        break-after: auto;
+      }
+    }
+  </style>
 </head>
 <body>
-<section class="page">
-  <img class="top-deco" src="https://www.figma.com/api/mcp/asset/995c1b40-ab28-4180-a530-d41fe28c286f" alt="">
-  <img class="logo" src="https://www.figma.com/api/mcp/asset/e182f189-0a96-43f3-8c49-7498bb40b614" alt="Learners Point">
-  <div class="pill">CSAT Score <span id="cv-csat-score-val">4.9</span> | Batches Delivered <span id="cv-batches-val">30</span></div>
-  <div class="p1-main">
-    <div class="p1-head">
-      <h1 id="cv-p1-name">Samir F.</h1>
-      <div id="cv-p1-tagline" class="p1-tagline">IT Governance Expert | ITIL® 4 Trainer | COBIT® 2019 Consultant | ISO 27001 Specialist</div>
+  <!-- ═══════ PAGE 1 ═══════ -->
+  <section class="page" id="page1">
+    <div class="canvas">
+    <img class="small-dot" src="https://www.figma.com/api/mcp/asset/995c1b40-ab28-4180-a530-d41fe28c286f" alt="" />
+
+    <img src="https://www.figma.com/api/mcp/asset/e182f189-0a96-43f3-8c49-7498bb40b614" alt="Learners Point"
+         style="position:absolute;right:21px;top:24px;width:166px;height:23px;" />
+
+    <div class="pill">
+      CSAT Score <span id="cv-csat-score-val">4.9</span> | Batches Delivered <span id="cv-batches-val">30</span>
     </div>
-    <div class="p1-bio-wrap">
-      <div class="vertical-label">TRAINER PROFILE</div>
-      <div class="p1-bio" id="cv-p1-bio-box">
-        <p id="cv-bio-1">Sample bio paragraph one.</p>
-        <p id="cv-bio-2">Sample bio paragraph two.</p>
+
+    <h1 id="cv-p1-name" style="position:absolute;left:40px;top:90px;font-size:34px;font-weight:700;">
+      Samir F.
+    </h1>
+
+    <p id="cv-p1-tagline" class="text14"
+       style="position:absolute;left:40px;top:147px;width:481px;font-weight:500;">
+      IT Governance Expert | ITIL® 4 Trainer | COBIT® 2019 Consultant ...
+    </p>
+
+    <div id="cv-bio-box"
+         style="position:absolute;left:86px;top:203px;width:467px;height:233px;display:flex;flex-direction:column;gap:21px;"
+         class="text12">
+      <p id="cv-bio-1">Sample bio paragraph one.</p>
+      <p id="cv-bio-2">Sample bio paragraph two.</p>
+    </div>
+
+    <div style="position:absolute;left:41px;top:203px;height:216px;width:17px;display:flex;align-items:center;justify-content:center;">
+      <div style="transform:rotate(-90deg);color:#333;font-family:'Helvetica Neue',Helvetica,Arial,sans-serif;font-size:24px;font-style:normal;font-weight:700;line-height:33.754px;white-space:nowrap;">
+        TRAINER PROFILE
       </div>
     </div>
-    <div class="p1-programs-bg" id="cv-p1-programs-box">
-      <p class="section-title">PROGRAM TRAINED</p>
-      <ul id="cv-p1-programs-ul"></ul>
+
+    <div style="position:absolute;left:48px;top:444px;width:1px;height:380px;background:#333;opacity:.8;"></div>
+
+    <div class="light" style="left:64px;top:452px;width:531px;height:390px;"></div>
+
+    <div style="position:absolute;left:86px;top:470px;width:387px;">
+      <h2 class="title">PROGRAM TRAINED</h2>
+      <ul id="cv-p1-programs-ul" class="text12"
+          style="margin-top:8px;display:grid;gap:2px;line-height:17px;">
+        <!-- filled dynamically -->
+      </ul>
     </div>
+
     <div class="footer">
-      <span><img src="https://www.figma.com/api/mcp/asset/a9dff84b-c3e2-427f-88a8-c2cd223148f3" alt="">info@Learnerspoint.org</span>
-      <span><img src="https://www.figma.com/api/mcp/asset/136064dc-7c4e-4b4e-aac4-0ff4618ca118" alt="">+971044038000</span>
-      <span><img src="https://www.figma.com/api/mcp/asset/5f5bb243-ab0b-40c4-97cb-6df860d1365b" alt="">learnerspoint.org</span>
+      <span><img src="https://www.figma.com/api/mcp/asset/a9dff84b-c3e2-427f-88a8-c2cd223148f3" alt="" />info@Learnerspoint.org</span>
+      <span><img src="https://www.figma.com/api/mcp/asset/136064dc-7c4e-4b4e-aac4-0ff4618ca118" alt="" />+971044038000</span>
+      <span><img src="https://www.figma.com/api/mcp/asset/5f5bb243-ab0b-40c4-97cb-6df860d1365b" alt="" />learnerspoint.org</span>
     </div>
-  </div>
-</section>
-
-<section class="page">
-  <div class="p2-top-programs" id="cv-p2-programs-box">
-    <ul id="cv-p2-programs-ul"></ul>
-  </div>
-  <div class="p2-main">
-    <div class="p2-col">
-      <div class="p2-box" id="cv-p2-training-box">
-        <p class="section-title">TRAINING DELIVERED</p>
-        <ul id="cv-p2-training-ul"></ul>
-      </div>
     </div>
-    <div class="p2-col">
-      <div class="strengths-bg p2-box" id="cv-p2-strengths-box">
-        <p class="section-title" style="font-size:6.5mm;">STRENGTHS</p>
-        <ul id="cv-p2-strengths-ul"></ul>
-      </div>
+  </section>
+
+  <!-- ═══════ PAGE 2 ═══════ -->
+  <section class="page" id="page2">
+    <div class="canvas">
+    <div class="light" style="left:63px;top:-21px;width:542px;height:335px;"></div>
+
+    <div style="position:absolute;left:89px;top:48px;width:366px;">
+      <ul id="cv-p2-programs-ul" class="text12"
+          style="display:grid;gap:2px;line-height:17px;">
+        <!-- filled dynamically -->
+      </ul>
     </div>
-  </div>
-  <div class="footer">
-    <span><img src="https://www.figma.com/api/mcp/asset/5cb2b8ce-95d8-4e20-a57f-3ea4b0c6eece" alt="">info@Learnerspoint.org</span>
-    <span><img src="https://www.figma.com/api/mcp/asset/1814e44d-866d-4bfa-92ec-30415639bcec" alt="">+971044038000</span>
-    <span><img src="https://www.figma.com/api/mcp/asset/c83d6595-6347-4b98-a26d-187914529843" alt="">learnerspoint.org</span>
-  </div>
-</section>
 
-<section class="page">
-  <div class="p3-main">
-    <div class="p3-box" id="cv-p3-experience-box">
-      <p class="section-title">PROFESSIONAL EXPERIENCE</p>
-      <ul id="cv-p3-experience-ul"></ul>
+    <div class="light" style="left:355px;top:327px;width:255px;height:515px;"></div>
+
+    <div style="position:absolute;left:41px;top:384px;width:232px;">
+      <h2 class="title">TRAINING DELIVERED</h2>
+      <ul id="cv-p2-training-ul" class="text12"
+          style="display:grid;gap:4px;margin-top:10px;">
+        <!-- filled dynamically -->
+      </ul>
     </div>
-    <div class="p3-awards-bg p3-box" id="cv-p3-awards-box">
-      <p class="section-title">CERTIFICATIONS, HONORS & AWARDS</p>
-      <ul id="cv-p3-awards-ul" style="font-style:italic;"></ul>
+
+    <div style="position:absolute;left:389px;top:357px;width:177px;">
+      <h2 class="title">STRENGTHS</h2>
+      <ul id="cv-p2-strengths-ul" class="text12"
+          style="display:grid;gap:4px;margin-top:8px;">
+        <!-- filled dynamically -->
+      </ul>
     </div>
-    <div class="p3-contact">Get in touch with us</div>
-  </div>
-  <div class="footer">
-    <span><img src="https://www.figma.com/api/mcp/asset/1db6d710-c343-4c23-bdf3-8f58de21c655" alt="">info@Learnerspoint.org</span>
-    <span><img src="https://www.figma.com/api/mcp/asset/7eab4245-43fe-4035-be50-ae1daa18cf8b" alt="">+971044038000</span>
-    <span><img src="https://www.figma.com/api/mcp/asset/0a2b7aae-3323-4eec-aa93-f4c6abd6bac5" alt="">learnerspoint.org</span>
-  </div>
-  <img class="bottom-deco" src="https://www.figma.com/api/mcp/asset/82fc6d76-b2e4-4d81-9e14-663f0d2850b6" alt="">
-</section>
 
-<script>
-(() => {
-  "use strict";
-  const qp = (name) => new URLSearchParams(window.location.search).get(name) || "";
-  const esc = (v) => String(v ?? "").replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
-  const uniq = (arr) => Array.from(new Set((arr || []).map((x) => String(x || "").trim()).filter(Boolean)));
-  const clean = (v) => String(v || "").replace(/\s+/g, " ").trim();
-  const topItems = (arr, n) => uniq(arr).slice(0, n);
-  const setText = (id, value) => { const el = document.getElementById(id); if (el) el.textContent = value || ""; };
-  const setList = (id, items) => { const el = document.getElementById(id); if (!el) return; el.innerHTML = items.map((v) => `<li>${esc(v)}</li>`).join(""); };
-  const degreeLike = (text) => /\b(master|bachelor|ph\.?d|doctorate|diploma|b\.?sc|m\.?sc|mba)\b/i.test(String(text || ""));
+    <div class="footer" style="left:-40px;">
+      <span><img src="https://www.figma.com/api/mcp/asset/5cb2b8ce-95d8-4e20-a57f-3ea4b0c6eece" alt="" />info@Learnerspoint.org</span>
+      <span><img src="https://www.figma.com/api/mcp/asset/1814e44d-866d-4bfa-92ec-30415639bcec" alt="" />+971044038000</span>
+      <span><img src="https://www.figma.com/api/mcp/asset/c83d6595-6347-4b98-a26d-187914529843" alt="" />learnerspoint.org</span>
+    </div>
+    </div>
+  </section>
 
-  function splitBio(text) {
-    const paras = String(text || "").split(/\n{2,}/).map(clean).filter(Boolean);
-    if (paras.length >= 2) return [paras[0], paras[1]];
-    return [clean(text), ""];
-  }
+  <!-- ═══════ PAGE 3 ═══════ -->
+  <section class="page" id="page3">
+    <div class="canvas">
+    <div style="position:absolute;left:41px;top:49px;width:488px;">
+      <h2 class="title">PROFESSIONAL EXPERIENCE</h2>
+      <ul id="cv-p3-experience-ul" class="text12"
+          style="display:grid;gap:2px;margin-top:8px;line-height:15px;">
+        <!-- filled dynamically -->
+      </ul>
+    </div>
 
-  function removeLastUntilFit(listId, boxId) {
-    const list = document.getElementById(listId);
-    const box = document.getElementById(boxId);
-    if (!list || !box) return;
-    while (list.children.length && box.scrollHeight > box.clientHeight) {
-      list.removeChild(list.lastElementChild);
-    }
-  }
+    <div class="light" style="left:41px;top:374px;width:568px;height:292px;"></div>
 
-  function overflowCleaner() {
-    removeLastUntilFit("cv-p1-programs-ul", "cv-p1-programs-box");
-    removeLastUntilFit("cv-p2-programs-ul", "cv-p2-programs-box");
-    removeLastUntilFit("cv-p2-training-ul", "cv-p2-training-box");
-    removeLastUntilFit("cv-p2-strengths-ul", "cv-p2-strengths-box");
-    removeLastUntilFit("cv-p3-experience-ul", "cv-p3-experience-box");
-    removeLastUntilFit("cv-p3-awards-ul", "cv-p3-awards-box");
-  }
+    <div style="position:absolute;left:91px;top:419px;width:446px;">
+      <h2 class="title">CERTIFICATIONS, HONORS & AWARDS</h2>
+      <ul id="cv-p3-awards-ul" class="text12"
+          style="font-style:italic;display:grid;gap:8px;margin-top:10px;line-height:14px;">
+        <!-- filled dynamically -->
+      </ul>
+    </div>
 
-  function applyProfile(profile) {
-    const p = profile || {};
-    const [bio1, bio2] = splitBio(p.profile || "");
-    setText("cv-p1-name", "This Trainer");
-    setText("cv-p1-tagline", topItems(p.professional_titles, 4).join(" | "));
-    setText("cv-csat-score-val", Number.isFinite(Number(p.csat_score)) ? Number(p.csat_score).toFixed(1) : "4.8");
-    setText("cv-batches-val", Number.isFinite(Number(p.batches_delivered)) ? String(Math.round(Number(p.batches_delivered))) : "15");
-    setText("cv-bio-1", bio1);
-    setText("cv-bio-2", bio2);
+    <p style="position:absolute;left:41px;top:765px;font-size:34px;font-weight:700;line-height:14px;
+              transform:scale(.47);transform-origin:left top;color:#141414;">
+      Get in touch with us
+    </p>
 
-    const programs = topItems(p.programs_trained, 14);
-    setList("cv-p1-programs-ul", programs.slice(0, 7));
-    setList("cv-p2-programs-ul", programs.slice(7));
-    setList("cv-p2-training-ul", topItems(p.training_delivered, 12));
-    setList("cv-p2-strengths-ul", topItems((p.key_skills?.length ? p.key_skills : p.core_competencies), 10));
-    setList("cv-p3-experience-ul", topItems(p.professional_experience, 6));
-    setList("cv-p3-awards-ul", topItems([...(p.certificates || []), ...(p.awards_and_recognitions || [])].filter((x) => !degreeLike(x)), 6));
-    overflowCleaner();
-  }
+    <div class="footer" style="left:-38px;">
+      <span><img src="https://www.figma.com/api/mcp/asset/1db6d710-c343-4c23-bdf3-8f58de21c655" alt="" />info@Learnerspoint.org</span>
+      <span><img src="https://www.figma.com/api/mcp/asset/7eab4245-43fe-4035-be50-ae1daa18cf8b" alt="" />+971044038000</span>
+      <span><img src="https://www.figma.com/api/mcp/asset/0a2b7aae-3323-4eec-aa93-f4c6abd6bac5" alt="" />learnerspoint.org</span>
+    </div>
 
-  async function loadJob() {
-    const jobRef = qp("job").trim();
-    if (!jobRef) return;
-    const base = (qp("api_base") || window.location.origin).replace(/\/$/, "");
-    try {
-      const res = await fetch(`${base}/api/v1/profiles/${encodeURIComponent(jobRef)}`);
-      const data = await res.json();
-      if (!res.ok) throw new Error(data?.detail || "Failed to load");
-      if (!data?.generated_profile) throw new Error("Profile missing");
-      applyProfile(data.generated_profile);
-      console.info("[trainer-profile] loaded");
-    } catch (err) {
-      console.error("[trainer-profile] failed", err);
-    }
-  }
+    <img src="https://www.figma.com/api/mcp/asset/82fc6d76-b2e4-4d81-9e14-663f0d2850b6" alt=""
+         style="position:absolute;left:546px;top:683px;width:49px;height:159px;" />
+    </div>
+  </section>
 
-  document.addEventListener("DOMContentLoaded", loadJob);
-})();
-</script>
+  <script>
+    (() => {
+      'use strict';
+
+      const qp = name => new URLSearchParams(window.location.search).get(name) || '';
+      const esc   = v => String(v ?? '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+      const clean = v => String(v ?? '').replace(/\s+/g,' ').trim();
+      const uniq  = arr => Array.from(new Set((arr || []).map(x => String(x || '').trim()).filter(Boolean)));
+      const topItems = (arr, n) => uniq(arr).slice(0, n);
+
+      const setText = (id, val) => {
+        const el = document.getElementById(id);
+        if (el) el.textContent = val || '';
+      };
+
+      const setList = (id, items) => {
+        const el = document.getElementById(id);
+        if (!el) return;
+        el.innerHTML = items.map(v => `<li>${esc(v)}</li>`).join('');
+      };
+
+      const splitBio = text => {
+        const paras = String(text || '').split(/\n{2,}/).map(clean).filter(Boolean);
+        if (paras.length >= 2) return [paras[0], paras[1]];
+        return [clean(text), ''];
+      };
+
+      const removeLastUntilFit = (listId, boxId) => {
+        const list = document.getElementById(listId);
+        const box  = document.getElementById(boxId);
+        if (!list || !box) return;
+        while (list.children.length && box.scrollHeight > box.clientHeight) {
+          list.removeChild(list.lastElementChild);
+        }
+      };
+
+      const runOverflowCleaner = () => {
+        removeLastUntilFit('cv-p1-programs-ul', 'page1');
+        removeLastUntilFit('cv-p2-programs-ul', 'page2');
+        removeLastUntilFit('cv-p2-training-ul', 'page2');
+        removeLastUntilFit('cv-p2-strengths-ul', 'page2');
+        removeLastUntilFit('cv-p3-experience-ul', 'page3');
+        removeLastUntilFit('cv-p3-awards-ul', 'page3');
+      };
+
+      const applyProfile = (profile) => {
+        const p = profile || {};
+
+        setText('cv-p1-name', 'This Trainer');
+        setText('cv-p1-tagline', topItems(p.professional_titles, 4).join(' | '));
+
+        setText('cv-csat-score-val',
+          Number.isFinite(+p.csat_score) ? (+p.csat_score).toFixed(1) : '4.8');
+        setText('cv-batches-val',
+          Number.isFinite(+p.batches_delivered) ? String(Math.round(+p.batches_delivered)) : '15');
+
+        const [bio1, bio2] = splitBio(p.profile || '');
+        setText('cv-bio-1', bio1);
+        setText('cv-bio-2', bio2);
+
+        const programs = topItems(p.programs_trained, 14);
+        setList('cv-p1-programs-ul', programs.slice(0, 7));
+        setList('cv-p2-programs-ul', programs.slice(7));
+
+        setList('cv-p2-training-ul', topItems(p.training_delivered, 12));
+
+        const skills = p.key_skills?.length ? p.key_skills : p.core_competencies;
+        setList('cv-p2-strengths-ul', topItems(skills, 10));
+
+        setList('cv-p3-experience-ul', topItems(p.professional_experience, 6));
+
+        const awards = [
+          ...(p.certificates || []),
+          ...(p.awards_and_recognitions || [])
+        ].filter(x => !/\b(master|bachelor|ph\.?d|doctorate|diploma|b\.?sc|m\.?sc|mba)\b/i.test(x));
+        setList('cv-p3-awards-ul', topItems(awards, 6));
+
+        runOverflowCleaner();
+        setTimeout(runOverflowCleaner, 150);
+      };
+
+      const loadJob = async () => {
+        const jobRef = qp('job').trim();
+        if (!jobRef) return;
+        const apiBase = (qp('api_base') || window.location.origin).replace(/\/$/, '');
+        try {
+          const res = await fetch(`${apiBase}/api/v1/profiles/${encodeURIComponent(jobRef)}`);
+          if (!res.ok) throw new Error(`HTTP ${res.status}`);
+          const data = await res.json();
+          if (!data?.generated_profile) throw new Error('generated_profile missing');
+          applyProfile(data.generated_profile);
+          console.info('[trainer-profile] loaded');
+        } catch (err) {
+          console.error('[trainer-profile] load failed', err);
+        }
+      };
+
+      const autoprint = () => {
+        if (qp('autoprint') === '1') {
+          requestAnimationFrame(() => requestAnimationFrame(() => window.print()));
+        }
+      };
+
+      document.addEventListener('DOMContentLoaded', () => {
+        loadJob().then(autoprint);
+      });
+    })();
+  </script>
 </body>
 </html>

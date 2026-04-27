@@ -32,6 +32,7 @@ def render_trainer_profile_pdf(*, public_base_url: str, job_id: str) -> bytes:
         browser = p.chromium.launch(headless=True)
         try:
             page = browser.new_page()
+            page.set_viewport_size({"width": 595, "height": 842})
             page.on(
                 "console",
                 lambda msg: logger.info(
