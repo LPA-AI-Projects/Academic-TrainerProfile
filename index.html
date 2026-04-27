@@ -303,6 +303,16 @@
         return [clean(text), ''];
       };
 
+      const formatExperience = (line) => {
+        let t = clean(line);
+        if (!t) return '';
+        // Match sample style: "Title - Organization", remove trailing date chunks.
+        t = t.replace(/\s*\([^)]*(?:\d{4}|present|current)[^)]*\)\s*$/gi, '');
+        t = t.replace(/\s*\|\s*/g, ' - ');
+        t = t.replace(/\s{2,}/g, ' ').trim();
+        return t;
+      };
+
       const removeLastUntilFit = (listId, boxId) => {
         const list = document.getElementById(listId);
         const box  = document.getElementById(boxId);
@@ -310,6 +320,11 @@
         while (list.children.length && box.scrollHeight > box.clientHeight) {
           list.removeChild(list.lastElementChild);
         }
+      };
+
+      const distributeProgramsAcrossPages = (programs) => {
+        setList('cv-p1-programs-ul', programs.slice(0, 14));
+        setList('cv-p2-programs-ul', programs.slice(14));
       };
 
       const runOverflowCleaner = () => {
@@ -325,7 +340,7 @@
         const p = profile || {};
 
         setText('cv-p1-name', 'This Trainer');
-        setText('cv-p1-tagline', topItems(p.professional_titles, 4).join(' | '));
+        setText('cv-p1-tagline', uniq(p.professional_titles).join(' | '));
 
         setText('cv-csat-score-val',
           Number.isFinite(+p.csat_score) ? (+p.csat_score).toFixed(1) : '4.8');
@@ -336,16 +351,15 @@
         setText('cv-bio-1', bio1);
         setText('cv-bio-2', bio2);
 
-        const programs = topItems(p.programs_trained, 14);
-        setList('cv-p1-programs-ul', programs.slice(0, 7));
-        setList('cv-p2-programs-ul', programs.slice(7));
+        const programs = topItems(p.programs_trained, 26);
+        distributeProgramsAcrossPages(programs);
 
         setList('cv-p2-training-ul', topItems(p.training_delivered, 12));
 
         const skills = p.key_skills?.length ? p.key_skills : p.core_competencies;
         setList('cv-p2-strengths-ul', topItems(skills, 10));
 
-        setList('cv-p3-experience-ul', topItems(p.professional_experience, 6));
+        setList('cv-p3-experience-ul', (p.professional_experience || []).map(formatExperience).filter(Boolean));
 
         const awards = [
           ...(p.certificates || []),

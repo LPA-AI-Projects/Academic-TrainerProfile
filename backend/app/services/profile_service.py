@@ -1,5 +1,6 @@
 import logging
 import random
+import re
 import time
 from pathlib import Path
 
@@ -42,6 +43,15 @@ def _compact_list(items: list[str], *, max_items: int) -> list[str]:
     return out
 
 
+def _dedupe_list(items: list[str]) -> list[str]:
+    out: list[str] = []
+    for item in items:
+        compact = item.replace("\n", " ").strip()
+        if compact and compact not in out:
+            out.append(compact)
+    return out
+
+
 def _normalize_profile_text(value: object) -> str:
     text = str(value or "").strip()
     if not text:
@@ -64,6 +74,59 @@ def _normalize_profile_text(value: object) -> str:
     return f"{first}\n\n{second}".strip()
 
 
+def _title_case(text: str) -> str:
+    return " ".join(w[:1].upper() + w[1:].lower() for w in text.split() if w)
+
+
+def _derive_program_suggestions(raw: dict) -> list[str]:
+    seeds = _dedupe_list(
+        _as_string_list(raw.get("professional_titles"))
+        + _as_string_list(raw.get("key_skills"))
+        + _as_string_list(raw.get("core_competencies"))
+        + _as_string_list(raw.get("training_delivered"))
+        + _as_string_list(raw.get("professional_experience"))
+    )
+    suggestions: list[str] = []
+    for seed in seeds:
+        clean_seed = re.sub(r"[^A-Za-z0-9&/ +.-]", " ", seed)
+        clean_seed = re.sub(r"\s+", " ", clean_seed).strip(" -|")
+        if len(clean_seed) < 3:
+            continue
+        token_count = len(clean_seed.split())
+        if 1 <= token_count <= 5:
+            suggestions.append(_title_case(clean_seed))
+        elif token_count > 5:
+            suggestions.append(_title_case(" ".join(clean_seed.split()[:5])))
+    return _dedupe_list(suggestions)
+
+
+def _ensure_programs_count(raw: dict, programs: list[str], min_items: int = 20, max_items: int = 26) -> list[str]:
+    out = _compact_list(programs, max_items=max_items)
+    if len(out) >= min_items:
+        return out
+
+    inferred = _derive_program_suggestions(raw)
+    for item in inferred:
+        if item not in out:
+            out.append(item)
+        if len(out) >= min_items:
+            return out
+
+    # Last-resort neutral CV-aligned expansions when raw model output is sparse.
+    cv_aligned_fallback = _dedupe_list(
+        _as_string_list(raw.get("core_competencies"))
+        + _as_string_list(raw.get("key_skills"))
+        + _as_string_list(raw.get("professional_titles"))
+    )
+    for item in cv_aligned_fallback:
+        candidate = _title_case(re.sub(r"\s+", " ", item).strip())
+        if candidate and candidate not in out:
+            out.append(candidate)
+        if len(out) >= min_items:
+            break
+    return _compact_list(out, max_items=max_items)
+
+
 def normalize_profile_payload(raw: dict) -> dict:
     csat_raw = raw.get("csat_score")
     batches_raw = raw.get("batches_delivered")
@@ -78,10 +141,15 @@ def normalize_profile_payload(raw: dict) -> dict:
         batches = random.randint(10, 20)
     batches = min(20, max(10, batches))
 
-    professional_titles = _compact_list(_as_string_list(raw.get("professional_titles")), max_items=4)
-    programs_trained = _compact_list(_as_string_list(raw.get("programs_trained")), max_items=14)
+    professional_titles = _dedupe_list(_as_string_list(raw.get("professional_titles")))
+    programs_trained = _ensure_programs_count(
+        raw,
+        _dedupe_list(_as_string_list(raw.get("programs_trained"))),
+        min_items=20,
+        max_items=26,
+    )
     training_delivered = _compact_list(_as_string_list(raw.get("training_delivered")), max_items=12)
-    professional_experience = _compact_list(_as_string_list(raw.get("professional_experience")), max_items=6)
+    professional_experience = _dedupe_list(_as_string_list(raw.get("professional_experience")))
     key_skills = _compact_list(_as_string_list(raw.get("key_skills")), max_items=10)
     awards_and_recognitions = _compact_list(_as_string_list(raw.get("awards_and_recognitions")), max_items=6)
     certificates = _compact_list(_as_string_list(raw.get("certificates")), max_items=6)
