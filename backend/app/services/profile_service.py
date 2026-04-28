@@ -127,6 +127,28 @@ def _ensure_programs_count(raw: dict, programs: list[str], min_items: int = 20, 
     return _compact_list(out, max_items=max_items)
 
 
+def _ensure_strengths_count(raw: dict, min_items: int = 10, max_items: int = 11) -> list[str]:
+    primary = _dedupe_list(_as_string_list(raw.get("key_skills")))
+    secondary = _dedupe_list(_as_string_list(raw.get("core_competencies")))
+    tertiary = _dedupe_list(_as_string_list(raw.get("professional_titles")))
+    out = _compact_list(primary + [x for x in secondary + tertiary if x not in primary], max_items=max_items)
+    if len(out) >= min_items:
+        return out
+
+    # If still short, reuse CV-derived signals without truncating sentence content.
+    cv_signals = _dedupe_list(
+        _as_string_list(raw.get("training_delivered"))
+        + _as_string_list(raw.get("professional_experience"))
+    )
+    for item in cv_signals:
+        label = re.sub(r"\s+", " ", str(item or "")).strip(" -|,;")
+        if label and label not in out:
+            out.append(label)
+        if len(out) >= min_items:
+            break
+    return _compact_list(out, max_items=max_items)
+
+
 def normalize_profile_payload(raw: dict) -> dict:
     csat_raw = raw.get("csat_score")
     batches_raw = raw.get("batches_delivered")
@@ -148,9 +170,9 @@ def normalize_profile_payload(raw: dict) -> dict:
         min_items=20,
         max_items=26,
     )
-    training_delivered = _compact_list(_as_string_list(raw.get("training_delivered")), max_items=12)
+    training_delivered = _compact_list(_as_string_list(raw.get("training_delivered")), max_items=16)
     professional_experience = _dedupe_list(_as_string_list(raw.get("professional_experience")))
-    key_skills = _compact_list(_as_string_list(raw.get("key_skills")), max_items=10)
+    key_skills = _ensure_strengths_count(raw, min_items=10, max_items=11)
     awards_and_recognitions = _compact_list(_as_string_list(raw.get("awards_and_recognitions")), max_items=6)
     certificates = _compact_list(_as_string_list(raw.get("certificates")), max_items=6)
 
@@ -178,7 +200,7 @@ def normalize_profile_payload(raw: dict) -> dict:
         "key_skills": key_skills,
     }
     if not normalized["training_delivered"]:
-        normalized["training_delivered"] = _as_string_list(raw.get("board_experience"))
+        normalized["training_delivered"] = _compact_list(_as_string_list(raw.get("board_experience")), max_items=16)
     return normalized
 
 

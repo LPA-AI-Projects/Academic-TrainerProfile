@@ -185,7 +185,7 @@
 
     <div class="light" style="left:64px;top:452px;width:531px;height:390px;"></div>
 
-    <div style="position:absolute;left:86px;top:470px;width:387px;">
+    <div id="cv-p1-programs-box" style="position:absolute;left:86px;top:470px;width:387px;">
       <h2 class="title">PROGRAM TRAINED</h2>
       <ul id="cv-p1-programs-ul" class="text12"
           style="margin-top:8px;display:grid;gap:2px;line-height:17px;">
@@ -206,7 +206,7 @@
     <div class="canvas">
     <div class="light" style="left:63px;top:-21px;width:542px;height:335px;"></div>
 
-    <div style="position:absolute;left:89px;top:48px;width:366px;">
+    <div id="cv-p2-programs-box" style="position:absolute;left:89px;top:48px;width:366px;">
       <ul id="cv-p2-programs-ul" class="text12"
           style="display:grid;gap:2px;line-height:17px;">
         <!-- filled dynamically -->
@@ -215,7 +215,7 @@
 
     <div class="light" style="left:355px;top:327px;width:255px;height:515px;"></div>
 
-    <div style="position:absolute;left:41px;top:384px;width:232px;">
+    <div id="cv-p2-training-box" style="position:absolute;left:41px;top:384px;width:232px;">
       <h2 class="title">TRAINING DELIVERED</h2>
       <ul id="cv-p2-training-ul" class="text12"
           style="display:grid;gap:4px;margin-top:10px;">
@@ -223,7 +223,7 @@
       </ul>
     </div>
 
-    <div style="position:absolute;left:389px;top:357px;width:177px;">
+    <div id="cv-p2-strengths-box" style="position:absolute;left:389px;top:357px;width:177px;">
       <h2 class="title">STRENGTHS</h2>
       <ul id="cv-p2-strengths-ul" class="text12"
           style="display:grid;gap:4px;margin-top:8px;">
@@ -328,10 +328,10 @@
       };
 
       const runOverflowCleaner = () => {
-        removeLastUntilFit('cv-p1-programs-ul', 'page1');
-        removeLastUntilFit('cv-p2-programs-ul', 'page2');
-        removeLastUntilFit('cv-p2-training-ul', 'page2');
-        removeLastUntilFit('cv-p2-strengths-ul', 'page2');
+        removeLastUntilFit('cv-p1-programs-ul', 'cv-p1-programs-box');
+        removeLastUntilFit('cv-p2-programs-ul', 'cv-p2-programs-box');
+        removeLastUntilFit('cv-p2-training-ul', 'cv-p2-training-box');
+        removeLastUntilFit('cv-p2-strengths-ul', 'cv-p2-strengths-box');
         removeLastUntilFit('cv-p3-experience-ul', 'page3');
         removeLastUntilFit('cv-p3-awards-ul', 'page3');
       };
@@ -354,10 +354,10 @@
         const programs = topItems(p.programs_trained, 26);
         distributeProgramsAcrossPages(programs);
 
-        setList('cv-p2-training-ul', topItems(p.training_delivered, 12));
+        setList('cv-p2-training-ul', topItems(p.training_delivered, 16));
 
         const skills = p.key_skills?.length ? p.key_skills : p.core_competencies;
-        setList('cv-p2-strengths-ul', topItems(skills, 10));
+        setList('cv-p2-strengths-ul', topItems(skills, 11));
 
         setList('cv-p3-experience-ul', (p.professional_experience || []).map(formatExperience).filter(Boolean));
 
