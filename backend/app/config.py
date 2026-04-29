@@ -36,12 +36,20 @@ class Settings(BaseSettings):
     # Where generated PDFs are stored on disk and served from `/pdfs/...`.
     pdf_storage_dir: str = "storage/pdfs"
 
+    # Optional: require `X-API-Key` on API routes when set (matches common webhook / internal service pattern).
+    api_secret_key: str | None = None
+
     # Zoho CRM file download (webhook sends `cv` = attachment / file id, not a local path).
     zoho_dc: str = "com"
     zoho_client_id: str | None = None
     zoho_client_secret: str | None = None
     zoho_refresh_token: str | None = None
     zoho_access_token: str | None = None
+    # When request has only `zoho_record_id`, fetch file-upload field(s) from this module (e.g. Trainers, Contacts).
+    zoho_module_api_name: str | None = None
+    # CRM field API names for File Upload fields (configure to match your Zoho layout).
+    zoho_cv_field_api_name: str | None = None
+    zoho_outline_field_api_name: str | None = None
 
     model_config = SettingsConfigDict(
         env_file=".env",

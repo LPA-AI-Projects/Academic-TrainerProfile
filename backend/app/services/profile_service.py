@@ -13,7 +13,7 @@ from .file_parser import read_text_from_path, truncate_inputs
 from .job_pdf import ensure_job_pdf_on_disk
 from .llm_client import generate_profile_json
 from .prompt_builder import build_prompt
-from .zoho_service import download_crm_file_to_path
+from .zoho_service import download_crm_file_to_path, get_file_id_from_record_field
 
 logger = logging.getLogger("trainer_profile.generate")
 
@@ -210,57 +210,113 @@ def generate_and_store_profile(
     settings = get_settings()
     t0 = time.perf_counter()
 
-    temp_zoho_path: Path | None = None
-    cv_source = "zoho" if (payload.cv and payload.cv.strip()) else "local"
+    temp_zoho_paths: list[Path] = []
+    stored_outline_refs: list[str] = list(payload.course_outline_paths)
     logger.info(
-        "GEN_START zoho_record_id=%s cv_source=%s outlines=%s provider=%s model=%s",
+        "GEN_START zoho_record_id=%s cv_present=%s cv_path_present=%s outline_paths=%s provider=%s model=%s",
         payload.zoho_record_id,
-        cv_source,
+        bool(payload.cv and payload.cv.strip()),
+        bool(payload.cv_path and payload.cv_path.strip()),
         len(payload.course_outline_paths),
         payload.provider or settings.default_provider,
         payload.model_name or settings.default_model,
     )
     try:
+        mod = (settings.zoho_module_api_name or "").strip()
+        cv_field = (settings.zoho_cv_field_api_name or "").strip()
+        outline_field = (settings.zoho_outline_field_api_name or "").strip()
+
         if payload.cv and payload.cv.strip():
             zoho_id = payload.cv.strip()
-            temp_zoho_path = download_crm_file_to_path(zoho_id, _temp_cv_dir())
-            local_cv = str(temp_zoho_path)
+            p = download_crm_file_to_path(zoho_id, _temp_cv_dir())
+            temp_zoho_paths.append(p)
+            local_cv = str(p)
             cv_path_stored = f"zoho://{zoho_id}"
-            logger.info("GEN_CV_DOWNLOADED zoho_record_id=%s file_id=%s local_cv=%s", payload.zoho_record_id, zoho_id, local_cv)
-        else:
-            p = (payload.cv_path or "").strip()
-            if not p:
-                raise ValueError("cv_path is required when cv (Zoho file id) is not provided")
-            local_cv = p
+            logger.info(
+                "GEN_CV_DOWNLOADED zoho_record_id=%s file_id=%s local_cv=%s",
+                payload.zoho_record_id,
+                zoho_id,
+                local_cv,
+            )
+        elif (payload.cv_path or "").strip():
+            local_cv = (payload.cv_path or "").strip()
             cv_path_stored = local_cv
             logger.info("GEN_CV_LOCAL zoho_record_id=%s local_cv=%s", payload.zoho_record_id, local_cv)
+        elif mod and cv_field:
+            rid = (payload.zoho_record_id or "").strip()
+            file_id = get_file_id_from_record_field(mod, rid, cv_field)
+            if not file_id:
+                raise ValueError(
+                    f"No CV file id found in Zoho CRM module={mod!r} record={rid!r} field={cv_field!r}"
+                )
+            p = download_crm_file_to_path(file_id, _temp_cv_dir())
+            temp_zoho_paths.append(p)
+            local_cv = str(p)
+            cv_path_stored = f"zoho://record/{mod}/{cv_field}/{file_id}"
+            logger.info(
+                "GEN_CV_FROM_RECORD zoho_record_id=%s module=%s field=%s file_id=%s path=%s",
+                rid,
+                mod,
+                cv_field,
+                file_id,
+                local_cv,
+            )
+        else:
+            raise ValueError(
+                "Provide 'cv' (Zoho file id), 'cv_path' (local path), or set "
+                "ZOHO_MODULE_API_NAME and ZOHO_CV_FIELD_API_NAME to load the CV from CRM using zoho_record_id."
+            )
+
+        outline_read_paths: list[str] = list(payload.course_outline_paths)
+        if not outline_read_paths and mod and outline_field:
+            rid = (payload.zoho_record_id or "").strip()
+            oid = get_file_id_from_record_field(mod, rid, outline_field)
+            if oid:
+                op = download_crm_file_to_path(oid, _temp_cv_dir())
+                temp_zoho_paths.append(op)
+                outline_read_paths.append(str(op))
+                stored_outline_refs = [f"zoho://record/{mod}/{outline_field}/{oid}"]
+                logger.info(
+                    "GEN_OUTLINE_FROM_RECORD zoho_record_id=%s module=%s field=%s file_id=%s",
+                    rid,
+                    mod,
+                    outline_field,
+                    oid,
+                )
+            else:
+                logger.info(
+                    "GEN_OUTLINE_SKIPPED zoho_record_id=%s field=%s (empty or no file id)",
+                    rid,
+                    outline_field,
+                )
 
         t_read = time.perf_counter()
         cv_text = read_text_from_path(local_cv)
-        outlines = [read_text_from_path(path) for path in payload.course_outline_paths]
+        outlines = [read_text_from_path(path) for path in outline_read_paths]
         cv_trimmed, outline_trimmed = truncate_inputs(cv_text, outlines)
         logger.info(
             "GEN_CV_PARSED path_used=%s cv_chars=%s outline_files=%s outline_chars=%s read_ms=%.1f",
             local_cv,
             len(cv_trimmed),
-            len(outline_trimmed),
+            len(outline_read_paths),
             sum(len(x) for x in outline_trimmed),
             (time.perf_counter() - t_read) * 1000,
         )
     finally:
-        if temp_zoho_path is not None and temp_zoho_path.is_file():
-            try:
-                temp_zoho_path.unlink()
-                logger.info("GEN_CV_TEMP_REMOVED path=%s", temp_zoho_path)
-            except OSError as exc:
-                logger.warning("GEN_CV_TEMP_REMOVE_FAILED path=%s error=%s", temp_zoho_path, exc)
+        for temp_zoho_path in temp_zoho_paths:
+            if temp_zoho_path.is_file():
+                try:
+                    temp_zoho_path.unlink()
+                    logger.info("GEN_TEMP_REMOVED path=%s", temp_zoho_path)
+                except OSError as exc:
+                    logger.warning("GEN_TEMP_REMOVE_FAILED path=%s error=%s", temp_zoho_path, exc)
 
     prompt = build_prompt(cv_trimmed, outline_trimmed)
 
     job = TrainerProfileJob(
         zoho_record_id=payload.zoho_record_id,
         cv_path=cv_path_stored,
-        course_outline_paths=payload.course_outline_paths,
+        course_outline_paths=stored_outline_refs,
         provider=payload.provider or settings.default_provider,
         model_name=payload.model_name or settings.default_model,
         status="processing",

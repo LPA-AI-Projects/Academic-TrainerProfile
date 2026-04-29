@@ -2,7 +2,7 @@ import logging
 from pathlib import Path
 from urllib.parse import quote
 
-from fastapi import Depends, FastAPI, HTTPException, Request
+from fastapi import Depends, FastAPI, Header, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
@@ -23,6 +23,18 @@ app = FastAPI(title=settings.app_name)
 logger = logging.getLogger("trainer_profile.api")
 
 _BACKEND_ROOT = Path(__file__).resolve().parents[1]  # .../trainer-profile/backend
+
+
+def verify_api_key(x_api_key: str | None = Header(None, alias="X-API-Key")) -> None:
+    """When API_SECRET_KEY is set in the environment, require matching X-API-Key header."""
+    secret = (get_settings().api_secret_key or "").strip()
+    if not secret:
+        return
+    if not x_api_key or x_api_key.strip() != secret:
+        raise HTTPException(status_code=401, detail="Invalid or missing API key.")
+
+
+optional_api_key = Depends(verify_api_key)
 
 app.add_middleware(
     CORSMiddleware,
@@ -126,7 +138,11 @@ def health() -> dict[str, str]:
     return {"status": "ok", "env": settings.app_env}
 
 
-@app.post("/api/v1/profiles/generate", response_model=GenerateProfileResponse)
+@app.post(
+    "/api/v1/profiles/generate",
+    response_model=GenerateProfileResponse,
+    dependencies=[optional_api_key],
+)
 def generate_profile(payload: GenerateProfileRequest, request: Request, db: Session = Depends(get_db)):
     logger.info(
         "API_GENERATE_REQUEST zoho_record_id=%s cv_present=%s cv_path_present=%s outlines=%s provider=%s model=%s",
@@ -161,7 +177,11 @@ def generate_profile(payload: GenerateProfileRequest, request: Request, db: Sess
     )
 
 
-@app.get("/api/v1/profiles/{profile_ref}", response_model=JobStatusResponse)
+@app.get(
+    "/api/v1/profiles/{profile_ref}",
+    response_model=JobStatusResponse,
+    dependencies=[optional_api_key],
+)
 def get_profile_job(profile_ref: str, request: Request, db: Session = Depends(get_db)):
     logger.info("API_JOB_GET_REQUEST profile_ref=%s", profile_ref)
     job = db.get(TrainerProfileJob, profile_ref)
@@ -208,7 +228,7 @@ def get_profile_job(profile_ref: str, request: Request, db: Session = Depends(ge
     )
 
 
-@app.get("/api/v1/profiles/{job_id}/pdf")
+@app.get("/api/v1/profiles/{job_id}/pdf", dependencies=[optional_api_key])
 def download_profile_pdf(job_id: str, request: Request, db: Session = Depends(get_db)):
     logger.info("API_PDF_REQUEST job_id=%s", job_id)
     job = db.get(TrainerProfileJob, job_id)

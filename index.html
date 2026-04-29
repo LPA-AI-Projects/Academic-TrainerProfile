@@ -375,8 +375,11 @@
         const jobRef = qp('job').trim();
         if (!jobRef) return;
         const apiBase = (qp('api_base') || window.location.origin).replace(/\/$/, '');
+        const apiKey = qp('api_key').trim();
+        const headers = {};
+        if (apiKey) headers['X-API-Key'] = apiKey;
         try {
-          const res = await fetch(`${apiBase}/api/v1/profiles/${encodeURIComponent(jobRef)}`);
+          const res = await fetch(`${apiBase}/api/v1/profiles/${encodeURIComponent(jobRef)}`, { headers });
           if (!res.ok) throw new Error(`HTTP ${res.status}`);
           const data = await res.json();
           if (!data?.generated_profile) throw new Error('generated_profile missing');

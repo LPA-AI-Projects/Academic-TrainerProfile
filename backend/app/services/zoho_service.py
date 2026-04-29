@@ -5,6 +5,7 @@ Download CRM attachment bytes from Zoho using OAuth2 (refresh token or static ac
 from __future__ import annotations
 
 import logging
+import threading
 import time
 import uuid
 from pathlib import Path
@@ -13,7 +14,11 @@ from ..config import get_settings
 
 logger = logging.getLogger("trainer_profile.zoho")
 
-_TOKEN_CACHE: dict[str, object] = {"access_token": "", "expires_at": 0.0}
+_TOKEN_CACHE: dict[str, object] = {"access_token": "", "expires_at": 0.0, "api_domain": ""}
+_TOKEN_LOCK = threading.Lock()
+
+# Refresh the access token this many seconds before Zoho's expires_in (access tokens are ~1 hour).
+_TOKEN_REFRESH_SKEW_SEC = 120
 
 
 def _crm_api_host(dc: str) -> str:
@@ -30,7 +35,38 @@ def _accounts_host(dc: str) -> str:
     return f"https://accounts.zoho.{dc}"
 
 
-def _get_access_token() -> str:
+def _invalidate_token_cache() -> None:
+    """Clear cached access token (e.g. after 401 or before forced refresh)."""
+    _TOKEN_CACHE["access_token"] = ""
+    _TOKEN_CACHE["expires_at"] = 0.0
+    # Keep api_domain: Zoho returns it with refresh and it stays valid for the org.
+
+
+def _crm_api_base() -> str:
+    """
+    Base URL for CRM APIs. Prefer api_domain from the last refresh-token response
+    (see Zoho Accounts refresh docs); fall back to ZOHO_DC-based host.
+    """
+    domain = str(_TOKEN_CACHE.get("api_domain") or "").strip().rstrip("/")
+    if domain:
+        return domain
+    return _crm_api_host(get_settings().zoho_dc)
+
+
+def _can_use_refresh_token() -> bool:
+    s = get_settings()
+    return bool(
+        (s.zoho_refresh_token or "").strip()
+        and (s.zoho_client_id or "").strip()
+        and (s.zoho_client_secret or "").strip()
+    )
+
+
+def _refresh_access_token_with_lock(*, force: bool) -> str:
+    """
+    Obtain a new access token using the refresh_token grant (Zoho access tokens expire ~3600s).
+    Uses a lock so concurrent requests do not stampede the token endpoint.
+    """
     try:
         import requests
     except ModuleNotFoundError as exc:
@@ -39,20 +75,17 @@ def _get_access_token() -> str:
         ) from exc
 
     settings = get_settings()
-    static = (settings.zoho_access_token or "").strip()
-    if static and not settings.zoho_refresh_token:
-        return static
-
     cid = (settings.zoho_client_id or "").strip()
     csec = (settings.zoho_client_secret or "").strip()
     refresh = (settings.zoho_refresh_token or "").strip()
 
-    if refresh and cid and csec:
+    with _TOKEN_LOCK:
         now = time.time()
-        cached = str(_TOKEN_CACHE.get("access_token") or "")
-        exp = float(_TOKEN_CACHE.get("expires_at") or 0.0)
-        if cached and now < exp - 120:
-            return cached
+        if not force:
+            cached = str(_TOKEN_CACHE.get("access_token") or "")
+            exp = float(_TOKEN_CACHE.get("expires_at") or 0.0)
+            if cached and now < exp - _TOKEN_REFRESH_SKEW_SEC:
+                return cached
 
         url = f"{_accounts_host(settings.zoho_dc)}/oauth/v2/token"
         resp = requests.post(
@@ -75,8 +108,39 @@ def _get_access_token() -> str:
         expires_in = int(data.get("expires_in") or 3600)
         _TOKEN_CACHE["access_token"] = token
         _TOKEN_CACHE["expires_at"] = now + max(60, expires_in)
-        logger.info("Zoho access token refreshed expires_in=%s", expires_in)
+        api_domain = str(data.get("api_domain") or "").strip().rstrip("/")
+        if api_domain:
+            _TOKEN_CACHE["api_domain"] = api_domain
+        logger.info(
+            "Zoho access token refreshed expires_in=%s api_domain=%s cache_until_epoch=%.0f",
+            expires_in,
+            api_domain or "(from ZOHO_DC)",
+            float(_TOKEN_CACHE["expires_at"]),
+        )
         return token
+
+
+def _get_access_token(*, force_refresh: bool = False) -> str:
+    """
+    Return a valid Zoho-oauthtoken value.
+
+    With refresh_token configured: uses in-memory cache until shortly before expiry
+    (Zoho access tokens last about one hour), then refreshes. Call with force_refresh=True
+    after a 401 to obtain a new access token immediately.
+    """
+    settings = get_settings()
+    static = (settings.zoho_access_token or "").strip()
+    if static and not (settings.zoho_refresh_token or "").strip():
+        return static
+
+    if _can_use_refresh_token():
+        if not force_refresh:
+            now = time.time()
+            cached = str(_TOKEN_CACHE.get("access_token") or "")
+            exp = float(_TOKEN_CACHE.get("expires_at") or 0.0)
+            if cached and now < exp - _TOKEN_REFRESH_SKEW_SEC:
+                return cached
+        return _refresh_access_token_with_lock(force=force_refresh)
 
     if static:
         return static
@@ -104,12 +168,17 @@ def download_crm_file_to_path(file_id: str, dest_dir: Path) -> Path:
             "Missing dependency 'requests'. Install backend requirements first."
         ) from exc
 
-    settings = get_settings()
     token = _get_access_token()
-    base = _crm_api_host(settings.zoho_dc)
+    base = _crm_api_base()
     url = f"{base}/crm/v2/files"
     headers = {"Authorization": f"Zoho-oauthtoken {token}"}
     resp = requests.get(url, headers=headers, params={"id": file_id}, timeout=120)
+    if resp.status_code == 401 and _can_use_refresh_token():
+        logger.warning("Zoho file download got 401; refreshing access token and retrying once id=%s", file_id)
+        _invalidate_token_cache()
+        token = _get_access_token(force_refresh=True)
+        headers = {"Authorization": f"Zoho-oauthtoken {token}"}
+        resp = requests.get(url, headers=headers, params={"id": file_id}, timeout=120)
     if not resp.ok:
         logger.error(
             "Zoho file download failed id=%s status=%s body=%s",
@@ -135,3 +204,102 @@ def download_crm_file_to_path(file_id: str, dest_dir: Path) -> Path:
     out.write_bytes(resp.content)
     logger.info("Zoho CV downloaded file_id=%s bytes=%s path=%s", file_id, len(resp.content), out)
     return out
+
+
+def _crm_v2_get(path: str) -> dict:
+    """GET Zoho CRM v2 path (e.g. /crm/v2/Leads/123)."""
+    try:
+        import requests
+    except ModuleNotFoundError as exc:
+        raise RuntimeError(
+            "Missing dependency 'requests'. Install backend requirements first."
+        ) from exc
+
+    token = _get_access_token()
+    base = _crm_api_base()
+    url = f"{base}{path}"
+    headers = {"Authorization": f"Zoho-oauthtoken {token}"}
+    resp = requests.get(url, headers=headers, timeout=120)
+    if resp.status_code == 401 and _can_use_refresh_token():
+        logger.warning("Zoho CRM GET got 401; refreshing access token and retrying once path=%s", path)
+        _invalidate_token_cache()
+        token = _get_access_token(force_refresh=True)
+        headers = {"Authorization": f"Zoho-oauthtoken {token}"}
+        resp = requests.get(url, headers=headers, timeout=120)
+    if not resp.ok:
+        logger.error(
+            "Zoho CRM GET failed path=%s status=%s body=%s",
+            path,
+            resp.status_code,
+            (resp.text or "")[:800],
+        )
+    resp.raise_for_status()
+    return resp.json()
+
+
+def extract_file_id_from_zoho_field(value: object) -> str | None:
+    """
+    Parse Zoho File Upload field value(s) and return a CRM file id for /crm/v2/files?id=...
+    Handles dict, list of dicts, and plain id strings.
+    """
+    if value is None:
+        return None
+    if isinstance(value, str):
+        s = value.strip()
+        return s or None
+    if isinstance(value, dict):
+        for key in (
+            "file_Id",
+            "file_id",
+            "File_Id",
+            "File_ID",
+            "id",
+            "Id",
+            "attachment_id",
+            "Attachment_Id",
+        ):
+            raw = value.get(key)
+            if isinstance(raw, str) and raw.strip():
+                return raw.strip()
+        # Nested single-file shape
+        nested = value.get("value")
+        if nested is not None:
+            return extract_file_id_from_zoho_field(nested)
+        return None
+    if isinstance(value, list):
+        for item in value:
+            fid = extract_file_id_from_zoho_field(item)
+            if fid:
+                return fid
+        return None
+    return None
+
+
+def fetch_crm_record(module_api_name: str, crm_record_id: str) -> dict:
+    module_api_name = (module_api_name or "").strip()
+    crm_record_id = (crm_record_id or "").strip()
+    if not module_api_name or not crm_record_id:
+        raise ValueError("module_api_name and crm_record_id are required")
+    # Path segment: module API name + record id
+    path = f"/crm/v2/{module_api_name}/{crm_record_id}"
+    data = _crm_v2_get(path)
+    rows = data.get("data")
+    if not isinstance(rows, list) or not rows:
+        raise RuntimeError(f"Zoho CRM record not found or empty: module={module_api_name} id={crm_record_id}")
+    row = rows[0]
+    if not isinstance(row, dict):
+        raise RuntimeError("Unexpected Zoho CRM record shape")
+    return row
+
+
+def get_file_id_from_record_field(
+    module_api_name: str,
+    crm_record_id: str,
+    field_api_name: str,
+) -> str | None:
+    field_api_name = (field_api_name or "").strip()
+    if not field_api_name:
+        return None
+    record = fetch_crm_record(module_api_name, crm_record_id)
+    raw = record.get(field_api_name)
+    return extract_file_id_from_zoho_field(raw)

@@ -24,10 +24,10 @@ class GenerateProfileRequest(BaseModel):
     def require_cv_source(self) -> GenerateProfileRequest:
         has_zoho = bool(self.cv and self.cv.strip())
         has_local = bool(self.cv_path and self.cv_path.strip())
-        if not has_zoho and not has_local:
-            raise ValueError("Provide either 'cv' (Zoho CRM file id) or 'cv_path' (local file path).")
         if has_zoho and has_local:
             raise ValueError("Provide only one of 'cv' or 'cv_path', not both.")
+        # If both omitted, generation may still work when the server is configured to read
+        # CV (and optional outline) from Zoho CRM using `zoho_record_id` + module/field env vars.
         return self
 
 
