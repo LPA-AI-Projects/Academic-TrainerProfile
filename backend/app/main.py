@@ -210,7 +210,7 @@ def _public_base_url(request: Request) -> str:
 
     if settings.public_base_url:
         configured = str(settings.public_base_url).rstrip("/")
-        # In local dev, stale PUBLIC_BASE_URL ports (e.g. 8000 vs 8010) break
+        # In local dev, stale PUBLIC_BASE_URL ports (e.g. 8080 vs 8010) break
         # Playwright PDF rendering because the preview page fetches the wrong API.
         if request_host in {"127.0.0.1", "localhost", "0.0.0.0", "::1", "[::]"}:
             try:

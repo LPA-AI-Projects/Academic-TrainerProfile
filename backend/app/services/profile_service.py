@@ -256,7 +256,7 @@ def _complete_job_after_prompt(
     db.refresh(job)
 
     if job.status == "completed":
-        public_base = (public_base_url or settings.public_base_url or "http://127.0.0.1:8000").rstrip("/")
+        public_base = (public_base_url or settings.public_base_url or "http://127.0.0.1:8080").rstrip("/")
         try:
             t_pdf = time.perf_counter()
             pdf_path = ensure_job_pdf_on_disk(db=db, job=job, public_base_url=public_base)

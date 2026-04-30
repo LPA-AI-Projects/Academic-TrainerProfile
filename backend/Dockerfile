@@ -24,9 +24,11 @@ RUN playwright install --with-deps chromium
 # Copy full repository because backend serves /app/index.html and related static assets.
 COPY . /app
 
-EXPOSE 8000
+# Railway (and others) set PORT; default 8080 for local compose / Railway-style setups.
+EXPOSE 8080
 
 HEALTHCHECK --interval=30s --timeout=5s --start-period=25s --retries=3 \
-  CMD curl -fsS http://127.0.0.1:8000/health || exit 1
+  CMD /bin/sh -c 'curl -fsS "http://127.0.0.1:${PORT:-8080}/health" || exit 1'
 
-CMD ["uvicorn", "backend.app.main:app", "--host", "0.0.0.0", "--port", "8000"]
+# If you see Caddy `fileserver notFound` on /api/*, your edge is serving static files only — proxy /api to this process or run this container as the public HTTP service (no static-only Caddy in front).
+CMD ["/bin/sh", "-c", "exec uvicorn backend.app.main:app --host 0.0.0.0 --port ${PORT:-8080}"]

@@ -51,12 +51,12 @@ This exposes Postgres on `localhost:5433` with:
 ## 3) Run API
 
 ```bash
-uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
+uvicorn app.main:app --reload --host 0.0.0.0 --port 8080
 ```
 
 Open docs:
 
-- [http://localhost:8000/docs](http://localhost:8000/docs)
+- [http://localhost:8080/docs](http://localhost:8080/docs)
 
 ## 4) Main API
 
