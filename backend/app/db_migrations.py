@@ -1,11 +1,11 @@
 from __future__ import annotations
 
-import logging
-
 from sqlalchemy import inspect, text
 from sqlalchemy.engine import Engine
 
-logger = logging.getLogger("trainer_profile.db")
+from .utils.logger import get_logger
+
+logger = get_logger(__name__)
 
 
 def apply_light_migrations(engine: Engine) -> None:

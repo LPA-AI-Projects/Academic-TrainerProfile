@@ -17,6 +17,7 @@ from sqlalchemy.orm import Session
 
 from .config import get_settings
 from .database import Base, engine, get_db
+from .utils.logger import get_logger
 from .db_migrations import apply_light_migrations
 from .models import TrainerProfileJob
 from .schemas import (
@@ -40,7 +41,7 @@ settings = get_settings()
 
 app = FastAPI(title=settings.app_name)
 
-logger = logging.getLogger("trainer_profile.api")
+logger = get_logger(__name__)
 
 _BACKEND_ROOT = Path(__file__).resolve().parents[1]  # .../trainer-profile/backend
 
@@ -51,6 +52,10 @@ def verify_api_key(x_api_key: str | None = Header(None, alias="X-API-Key")) -> N
     if not secret:
         return
     if not x_api_key or x_api_key.strip() != secret:
+        logger.warning(
+            "API_KEY_REJECTED X-API-Key header present=%s",
+            bool(x_api_key and str(x_api_key).strip()),
+        )
         raise HTTPException(status_code=401, detail="Invalid or missing API key.")
 
 
@@ -251,6 +256,13 @@ def startup() -> None:
     logging.getLogger("uvicorn.error").setLevel(level)
     logging.getLogger("uvicorn.access").setLevel(level)
 
+    logger.info(
+        "API_STARTUP log_level=%s app_env=%s api_key_required=%s",
+        configured,
+        settings.app_env,
+        bool((settings.api_secret_key or "").strip()),
+    )
+
     Base.metadata.create_all(bind=engine)
     apply_light_migrations(engine)
 
@@ -282,6 +294,13 @@ def health_db() -> dict[str, str]:
 async def generate_profile(request: Request, db: Session = Depends(get_db)):
     ctype = (request.headers.get("content-type") or "").lower()
     if "application/x-www-form-urlencoded" not in ctype:
+        logger.warning(
+            "API_GENERATE_REJECT_UNSUPPORTED_MEDIA path=%s content_type=%r user_agent=%r x_forwarded_for=%r",
+            request.url.path,
+            request.headers.get("content-type"),
+            request.headers.get("user-agent"),
+            request.headers.get("x-forwarded-for"),
+        )
         raise HTTPException(
             status_code=415,
             detail="Unsupported Media Type. Use application/x-www-form-urlencoded.",
@@ -291,10 +310,29 @@ async def generate_profile(request: Request, db: Session = Depends(get_db)):
     form_data = {str(k): str(v).strip() for k, v in form.items()}
     zid = (form_data.get("zoho_record_id") or form_data.get("record_id") or form_data.get("id") or "").strip()
     if not zid:
+        logger.warning(
+            "API_GENERATE_REJECT_MISSING_RECORD_ID path=%s form_keys=%s x_zoho_crm_feature=%r",
+            request.url.path,
+            sorted(form_data.keys()),
+            request.headers.get("x-zoho-crm-feature"),
+        )
         raise HTTPException(
             status_code=422,
             detail="Missing zoho_record_id in form body (accepted aliases: zoho_record_id, record_id, id).",
         )
+
+    client_ip = (
+        request.headers.get("x-real-ip")
+        or (request.headers.get("x-forwarded-for") or "").split(",")[0].strip()
+        or (request.client.host if request.client else "")
+    )
+    logger.info(
+        "API_GENERATE_WEBHOOK_ACCEPTED zoho_record_id=%s client_ip=%s zoho_feature=%r ua=%.200s",
+        zid,
+        client_ip,
+        request.headers.get("x-zoho-crm-feature"),
+        (request.headers.get("user-agent") or ""),
+    )
 
     outline_paths_raw = form_data.get("course_outline_paths") or ""
     outline_list: list[str] = []

@@ -1,12 +1,12 @@
-import logging
 import os
 from typing import Any
 
 import requests
 
 from ..config import get_settings
+from ..utils.logger import get_logger
 
-logger = logging.getLogger("trainer_profile.google_drive")
+logger = get_logger(__name__)
 
 GOOGLE_TOKEN_URL = "https://oauth2.googleapis.com/token"
 GOOGLE_DRIVE_FILES_URL = "https://www.googleapis.com/drive/v3/files"

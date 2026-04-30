@@ -1,4 +1,3 @@
-import logging
 import random
 import re
 import time
@@ -7,6 +6,7 @@ from pathlib import Path
 from sqlalchemy.orm import Session
 
 from ..config import get_settings
+from ..utils.logger import get_logger
 from ..models import TrainerProfileJob
 from ..schemas import GenerateProfileRequest
 from .file_parser import read_text_from_path, truncate_inputs
@@ -23,7 +23,7 @@ from .zoho_service import (
     get_scalar_field_str,
 )
 
-logger = logging.getLogger("trainer_profile.generate")
+logger = get_logger(__name__)
 
 _BACKEND_DIR = Path(__file__).resolve().parents[2]
 

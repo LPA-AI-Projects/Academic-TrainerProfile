@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import logging
 import os
 from datetime import datetime
 from pathlib import Path
@@ -9,9 +8,10 @@ from sqlalchemy.orm import Session
 
 from ..config import get_settings
 from ..models import TrainerProfileJob
+from ..utils.logger import get_logger
 from .profile_pdf import render_trainer_profile_pdf
 
-logger = logging.getLogger("trainer_profile.job_pdf")
+logger = get_logger(__name__)
 
 _BACKEND_DIR = Path(__file__).resolve().parents[2]  # .../trainer-profile/backend
 

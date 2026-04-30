@@ -5,15 +5,15 @@ Download CRM attachment bytes from Zoho using OAuth2 (refresh token or static ac
 from __future__ import annotations
 
 import json
-import logging
 import threading
 import time
 import uuid
 from pathlib import Path
 
 from ..config import get_settings
+from ..utils.logger import get_logger
 
-logger = logging.getLogger("trainer_profile.zoho")
+logger = get_logger(__name__)
 
 _TOKEN_CACHE: dict[str, object] = {"access_token": "", "expires_at": 0.0, "api_domain": ""}
 

@@ -3,9 +3,9 @@ from __future__ import annotations
 import time
 from urllib.parse import quote
 
-import logging
+from ..utils.logger import get_logger
 
-logger = logging.getLogger("trainer_profile.pdf")
+logger = get_logger(__name__)
 
 
 def render_trainer_profile_pdf(*, public_base_url: str, job_id: str) -> bytes:
