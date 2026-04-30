@@ -116,3 +116,15 @@ class ProfileFeedbackResponse(BaseModel):
     rating: int
     comment: str | None = None
     feedback_updated_at: datetime
+
+
+class DriveUploadRequest(BaseModel):
+    zoho_record_id: str = Field(min_length=1, max_length=128)
+    course_name: str = Field(min_length=1, max_length=200)
+
+
+class DriveUploadResponse(BaseModel):
+    status: str
+    zoho_record_id: str
+    course_name: str
+    pdf_link: str

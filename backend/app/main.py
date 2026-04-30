@@ -19,6 +19,8 @@ from .database import Base, engine, get_db
 from .db_migrations import apply_light_migrations
 from .models import TrainerProfileJob
 from .schemas import (
+    DriveUploadRequest,
+    DriveUploadResponse,
     GenerateProfileRequest,
     GenerateProfileResponse,
     JobStatusResponse,
@@ -27,6 +29,7 @@ from .schemas import (
     ProfileFeedbackResponse,
     RefineProfileRequest,
 )
+from .services.google_drive_service import GoogleDriveUploadError, upload_trainer_profile_pdf
 from .services.job_pdf import ensure_job_pdf_on_disk
 from .services.profile_service import generate_and_store_profile
 from .services.llm_client import refine_profile_text
@@ -555,4 +558,40 @@ def save_profile_feedback(job_id: str, payload: ProfileFeedbackRequest, db: Sess
         rating=job.feedback_rating or payload.rating,
         comment=job.feedback_comment,
         feedback_updated_at=job.feedback_updated_at or now,
+    )
+
+
+@app.post(
+    "/api/v1/profiles/upload-to-drive",
+    response_model=DriveUploadResponse,
+    dependencies=[optional_api_key],
+)
+def upload_profile_pdf_to_drive(payload: DriveUploadRequest, request: Request, db: Session = Depends(get_db)):
+    """
+    Upload latest completed profile PDF (by zoho_record_id) into Drive folder hierarchy:
+    ai_automation/trainer_profile/{course_name}/{course_name}_trainerprofile.pdf
+    """
+    job = (
+        db.query(TrainerProfileJob)
+        .filter(TrainerProfileJob.zoho_record_id == payload.zoho_record_id)
+        .order_by(TrainerProfileJob.created_at.desc())
+        .first()
+    )
+    if not job:
+        raise HTTPException(status_code=404, detail="No job found for provided zoho_record_id")
+    if job.status != "completed" or not job.generated_profile:
+        raise HTTPException(status_code=400, detail="Latest job is not ready for Drive upload")
+
+    pdf_path = ensure_job_pdf_on_disk(db=db, job=job, public_base_url=_public_base_url(request))
+    pdf_bytes = Path(pdf_path).read_bytes()
+    try:
+        result = upload_trainer_profile_pdf(pdf_bytes=pdf_bytes, course_name=payload.course_name)
+    except GoogleDriveUploadError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    return DriveUploadResponse(
+        status="completed",
+        zoho_record_id=job.zoho_record_id,
+        course_name=payload.course_name,
+        pdf_link=result["view_link"],
     )

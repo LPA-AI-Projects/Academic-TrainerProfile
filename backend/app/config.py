@@ -51,6 +51,13 @@ class Settings(BaseSettings):
     zoho_cv_field_api_name: str | None = None
     zoho_outline_field_api_name: str | None = None
 
+    # Google Drive OAuth (for uploading generated trainer profile PDFs).
+    google_client_id: str | None = None
+    google_client_secret: str | None = None
+    google_refresh_token: str | None = None
+    # Optional parent folder in Drive; if empty, My Drive root is used.
+    google_drive_folder_id: str | None = None
+
     model_config = SettingsConfigDict(
         env_file=".env",
         env_file_encoding="utf-8",
