@@ -12,6 +12,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from pydantic import ValidationError
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
+from sqlalchemy import text
 from sqlalchemy.orm import Session
 
 from .config import get_settings
@@ -154,6 +155,20 @@ def startup() -> None:
 @app.get("/health")
 def health() -> dict[str, str]:
     return {"status": "ok", "env": settings.app_env}
+
+
+@app.get("/health/db")
+def health_db() -> dict[str, str]:
+    """
+    DB readiness check.
+    Returns 200 when a simple query succeeds, otherwise 503 with details.
+    """
+    try:
+        with engine.connect() as conn:
+            conn.execute(text("SELECT 1"))
+        return {"status": "ok", "database": "connected"}
+    except Exception as exc:
+        raise HTTPException(status_code=503, detail=f"Database connection failed: {exc}")
 
 
 @app.post(
