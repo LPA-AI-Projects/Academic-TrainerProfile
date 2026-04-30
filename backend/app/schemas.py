@@ -71,6 +71,12 @@ class GenerateProfileResponse(BaseModel):
     generated_profile: GeneratedProfilePayload
 
 
+class RefineProfileRequest(BaseModel):
+    zoho_record_id: str = Field(min_length=1, max_length=128)
+    feedback: str = Field(min_length=1, max_length=4000)
+    profile_name: str | None = Field(default=None, max_length=200)
+
+
 class JobStatusResponse(BaseModel):
     id: str
     status: str
@@ -84,5 +90,29 @@ class JobStatusResponse(BaseModel):
     export: ProfileExportLinks | None = None
     error_message: str | None = None
     pdf_generation_error: str | None = None
+    feedback_rating: int | None = None
+    feedback_comment: str | None = None
+    feedback_updated_at: datetime | None = None
     created_at: datetime
     updated_at: datetime
+
+
+class ProfileFeedbackRequest(BaseModel):
+    rating: int = Field(ge=1, le=5, description="1-5 rating for generated trainer profile quality.")
+    comment: str | None = Field(default=None, max_length=2000)
+
+    @field_validator("comment")
+    @classmethod
+    def normalize_comment(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
+        cleaned = value.strip()
+        return cleaned or None
+
+
+class ProfileFeedbackResponse(BaseModel):
+    job_id: str
+    zoho_record_id: str
+    rating: int
+    comment: str | None = None
+    feedback_updated_at: datetime

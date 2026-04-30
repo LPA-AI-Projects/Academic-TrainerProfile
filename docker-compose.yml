@@ -17,5 +17,28 @@ services:
       timeout: 5s
       retries: 5
 
+  backend:
+    build:
+      context: .
+      dockerfile: backend/Dockerfile
+    container_name: lpa-trainer-backend
+    restart: unless-stopped
+    env_file:
+      - backend/.env
+    environment:
+      # Use containerized Postgres when running via compose.
+      DATABASE_URL: postgresql+psycopg2://postgres:postgres@postgres:5432/trainer_profiles
+      APP_HOST: 0.0.0.0
+      APP_PORT: 8000
+      PUBLIC_BASE_URL: http://127.0.0.1:8080
+    ports:
+      - "8080:8000"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    volumes:
+      # Keep generated files persistent outside the container lifecycle.
+      - ./backend/storage:/app/backend/storage
+
 volumes:
   lpa_trainer_pgdata:

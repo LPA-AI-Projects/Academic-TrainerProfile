@@ -1,9 +1,15 @@
+import json
 import logging
+import tempfile
+from datetime import datetime
 from pathlib import Path
+from typing import Literal
+from shutil import copyfileobj
 from urllib.parse import quote
 
-from fastapi import Depends, FastAPI, Header, HTTPException, Request
+from fastapi import Depends, FastAPI, File, Form, Header, HTTPException, Request, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
+from pydantic import ValidationError
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 from sqlalchemy.orm import Session
@@ -12,9 +18,18 @@ from .config import get_settings
 from .database import Base, engine, get_db
 from .db_migrations import apply_light_migrations
 from .models import TrainerProfileJob
-from .schemas import GenerateProfileRequest, GenerateProfileResponse, JobStatusResponse, ProfileExportLinks
+from .schemas import (
+    GenerateProfileRequest,
+    GenerateProfileResponse,
+    JobStatusResponse,
+    ProfileExportLinks,
+    ProfileFeedbackRequest,
+    ProfileFeedbackResponse,
+    RefineProfileRequest,
+)
 from .services.job_pdf import ensure_job_pdf_on_disk
 from .services.profile_service import generate_and_store_profile
+from .services.llm_client import refine_profile_text
 
 settings = get_settings()
 
@@ -177,8 +192,257 @@ def generate_profile(payload: GenerateProfileRequest, request: Request, db: Sess
     )
 
 
+@app.post(
+    "/api/v1/profile/refine",
+    response_model=GenerateProfileResponse,
+    dependencies=[optional_api_key],
+    summary="Refine existing profile using feedback (mapped by zoho_record_id)",
+)
+@app.post(
+    "/api/v2/profiles/generate",
+    response_model=GenerateProfileResponse,
+    dependencies=[optional_api_key],
+    summary="Refine existing profile using feedback",
+)
+def refine_profile(payload: RefineProfileRequest, request: Request, db: Session = Depends(get_db)):
+    """
+    v2 behavior:
+    - Input: zoho_record_id + profile_name + feedback
+    - Finds latest completed profile job by zoho_record_id
+    - Refines only `generated_profile.profile` from feedback
+    - Preserves all other generated fields as-is
+    """
+    job = (
+        db.query(TrainerProfileJob)
+        .filter(TrainerProfileJob.zoho_record_id == payload.zoho_record_id)
+        .order_by(TrainerProfileJob.created_at.desc())
+        .first()
+    )
+    if not job:
+        raise HTTPException(status_code=404, detail="No job found for provided zoho_record_id")
+    if job.status != "completed" or not job.generated_profile:
+        raise HTTPException(status_code=400, detail="Latest job is not ready for feedback refinement")
+
+    current_profile = str((job.generated_profile or {}).get("profile") or "").strip()
+    if not current_profile:
+        raise HTTPException(status_code=400, detail="Existing profile text is empty for this record")
+
+    try:
+        refined_text, resolved_provider = refine_profile_text(
+            existing_profile_text=current_profile,
+            profile_name=(payload.profile_name or "Trainer").strip() or "Trainer",
+            feedback=payload.feedback,
+            provider=job.provider or settings.default_provider,
+            model_name=job.model_name or settings.default_model,
+        )
+    except Exception as exc:
+        logger.exception("API_V2_REFINE_FAILED zoho_record_id=%s", payload.zoho_record_id)
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    refined_text = refined_text.strip() or current_profile
+    updated = dict(job.generated_profile or {})
+    # Only this field is changed as requested.
+    updated["profile"] = refined_text
+    job.generated_profile = updated
+    job.provider = resolved_provider
+    job.feedback_comment = payload.feedback.strip()
+    job.feedback_updated_at = datetime.utcnow()
+    job.updated_at = datetime.utcnow()
+    job.pdf_generation_error = None
+    db.add(job)
+    db.commit()
+    db.refresh(job)
+
+    # Rebuild PDF so exported file reflects refined profile text.
+    try:
+        ensure_job_pdf_on_disk(db=db, job=job, public_base_url=_public_base_url(request))
+    except Exception as exc:
+        job.pdf_generation_error = str(exc)
+        db.add(job)
+        db.commit()
+        db.refresh(job)
+        logger.exception("API_V2_REFINE_PDF_FAILED job_id=%s", job.id)
+
+    export = _export_links_for_job(request, job.id)
+    return GenerateProfileResponse(
+        status=job.status,
+        zoho_record_id=job.zoho_record_id,
+        pdf_url=export.pdf_url,
+        generated_profile=job.generated_profile,
+    )
+
+
+def _form_upload_temp_dir() -> Path:
+    d = _BACKEND_ROOT / "storage" / "temp"
+    d.mkdir(parents=True, exist_ok=True)
+    return d
+
+
+def _save_upload_to_temp(upload: UploadFile | None) -> Path | None:
+    """Persist an upload under backend storage/temp for the duration of generate (same root as Zoho temp files)."""
+    if upload is None:
+        return None
+    name = (upload.filename or "").strip()
+    if not name:
+        return None
+    suffix = Path(name).suffix
+    d = _form_upload_temp_dir()
+    with tempfile.NamedTemporaryFile(delete=False, prefix="form_upload_", suffix=suffix, dir=str(d)) as tmp:
+        copyfileobj(upload.file, tmp)
+    return Path(tmp.name)
+
+
+def _parse_outline_paths_form(text: str | None) -> list[str]:
+    if not text or not text.strip():
+        return []
+    raw = text.strip()
+    if raw.startswith("["):
+        try:
+            parsed = json.loads(raw)
+        except json.JSONDecodeError:
+            return []
+        if isinstance(parsed, list):
+            return [str(p).strip() for p in parsed if str(p).strip()]
+        return []
+    return [p.strip() for p in raw.replace("\n", ",").split(",") if p.strip()]
+
+
+@app.post(
+    "/api/v1/profiles/generate/form",
+    response_model=GenerateProfileResponse,
+    dependencies=[optional_api_key],
+    summary="Generate profile (multipart — Postman-friendly uploads)",
+)
+@app.post(
+    "/api/v2/profiles/generate/form",
+    response_model=GenerateProfileResponse,
+    dependencies=[optional_api_key],
+    summary="Generate profile (multipart — Postman-friendly uploads)",
+)
+def generate_profile_form(
+    request: Request,
+    db: Session = Depends(get_db),
+    zoho_record_id: str = Form(...),
+    cv: str | None = Form(None, description="Zoho CRM file id for CV (optional if cv_file, cv_path, or CRM field env is used)"),
+    cv_path: str | None = Form(None, description="Server-readable path to CV (optional)"),
+    cv_file: UploadFile | None = File(None, description="Uploaded CV file (optional)"),
+    course_outline_paths: str | None = Form(
+        None,
+        description="Comma/newline-separated server paths, or a JSON array string, e.g. [\"C:/outlines/a.txt\"]",
+    ),
+    course_outline_file: UploadFile | None = File(None, description="Uploaded course outline (optional)"),
+    provider: str | None = Form(None),
+    model_name: str | None = Form(None),
+):
+    """
+    Same pipeline as `POST /api/v1/profiles/generate`, but accepts **multipart/form-data** so Postman can attach
+    `cv_file` and `course_outline_file` instead of JSON + local paths.
+
+    CV resolution order: **cv_file** (if non-empty filename) wins over **cv_path** and **cv** (Zoho file id).
+    Outlines: paths from **course_outline_paths** plus any saved **course_outline_file** upload.
+    Omit CV file/path/id when the server is configured to load CV (and optional outline) from Zoho CRM by record id.
+    """
+    zid = zoho_record_id.strip()
+    if not zid or len(zid) > 128:
+        raise HTTPException(status_code=400, detail="zoho_record_id must be 1–128 characters after trimming.")
+
+    temp_uploads: list[Path] = []
+    try:
+        saved_cv = _save_upload_to_temp(cv_file)
+        if saved_cv is not None:
+            temp_uploads.append(saved_cv)
+        saved_outline = _save_upload_to_temp(course_outline_file)
+        if saved_outline is not None:
+            temp_uploads.append(saved_outline)
+
+        outline_list = _parse_outline_paths_form(course_outline_paths)
+        if saved_outline is not None:
+            outline_list.append(str(saved_outline))
+
+        cv_path_effective: str | None = None
+        cv_id_effective: str | None = None
+        if saved_cv is not None:
+            cv_path_effective = str(saved_cv)
+        elif cv_path and cv_path.strip():
+            cv_path_effective = cv_path.strip()
+        elif cv and cv.strip():
+            cv_id_effective = cv.strip()
+
+        if cv_id_effective and cv_path_effective:
+            raise HTTPException(status_code=400, detail="Conflicting CV sources after resolving uploads (file/path vs id).")
+
+        prov: Literal["openai", "anthropic"] | None = None
+        if provider and provider.strip() == "openai":
+            prov = "openai"
+        elif provider and provider.strip() == "anthropic":
+            prov = "anthropic"
+
+        payload = GenerateProfileRequest(
+            zoho_record_id=zid,
+            cv=cv_id_effective,
+            cv_path=cv_path_effective,
+            course_outline_paths=outline_list,
+            provider=prov,
+            model_name=model_name.strip() if model_name and model_name.strip() else None,
+        )
+    except ValidationError as exc:
+        for p in temp_uploads:
+            p.unlink(missing_ok=True)
+        raise HTTPException(status_code=422, detail=exc.errors()) from exc
+    except HTTPException:
+        for p in temp_uploads:
+            p.unlink(missing_ok=True)
+        raise
+    except Exception:
+        for p in temp_uploads:
+            p.unlink(missing_ok=True)
+        raise
+
+    logger.info(
+        "API_GENERATE_FORM zoho_record_id=%s cv_file=%s cv_path=%s cv_id=%s outline_paths_count=%s outline_file=%s",
+        zoho_record_id,
+        saved_cv is not None,
+        bool(cv_path and cv_path.strip()),
+        bool(cv_id_effective),
+        len(outline_list),
+        saved_outline is not None,
+    )
+
+    try:
+        job = generate_and_store_profile(
+            payload,
+            db,
+            public_base_url=_public_base_url(request),
+        )
+    finally:
+        for p in temp_uploads:
+            p.unlink(missing_ok=True)
+
+    if job.status == "failed":
+        logger.error("API_GENERATE_FORM_FAILED zoho_record_id=%s error=%s", zoho_record_id, job.error_message)
+        raise HTTPException(status_code=400, detail=job.error_message or "Generation failed")
+    export = _export_links_for_job(request, job.id)
+    logger.info(
+        "API_GENERATE_FORM_RESPONSE job_id=%s status=%s pdf_url=%s",
+        job.id,
+        job.status,
+        export.pdf_url,
+    )
+    return GenerateProfileResponse(
+        status=job.status,
+        zoho_record_id=job.zoho_record_id,
+        pdf_url=export.pdf_url,
+        generated_profile=job.generated_profile,
+    )
+
+
 @app.get(
     "/api/v1/profiles/{profile_ref}",
+    response_model=JobStatusResponse,
+    dependencies=[optional_api_key],
+)
+@app.get(
+    "/api/v2/profiles/{profile_ref}",
     response_model=JobStatusResponse,
     dependencies=[optional_api_key],
 )
@@ -223,12 +487,16 @@ def get_profile_job(profile_ref: str, request: Request, db: Session = Depends(ge
         export=export,
         error_message=job.error_message,
         pdf_generation_error=job.pdf_generation_error,
+        feedback_rating=job.feedback_rating,
+        feedback_comment=job.feedback_comment,
+        feedback_updated_at=job.feedback_updated_at,
         created_at=job.created_at,
         updated_at=job.updated_at,
     )
 
 
 @app.get("/api/v1/profiles/{job_id}/pdf", dependencies=[optional_api_key])
+@app.get("/api/v2/profiles/{job_id}/pdf", dependencies=[optional_api_key])
 def download_profile_pdf(job_id: str, request: Request, db: Session = Depends(get_db)):
     logger.info("API_PDF_REQUEST job_id=%s", job_id)
     job = db.get(TrainerProfileJob, job_id)
@@ -246,4 +514,45 @@ def download_profile_pdf(job_id: str, request: Request, db: Session = Depends(ge
         path=str(path),
         media_type="application/pdf",
         filename=filename,
+    )
+
+
+@app.post(
+    "/api/v2/profiles/{job_id}/feedback",
+    response_model=ProfileFeedbackResponse,
+    dependencies=[optional_api_key],
+)
+def save_profile_feedback(job_id: str, payload: ProfileFeedbackRequest, db: Session = Depends(get_db)):
+    """
+    Store reviewer feedback for a generated trainer profile.
+    Keeps a single latest feedback per job (upsert behavior).
+    """
+    job = db.get(TrainerProfileJob, job_id)
+    if not job:
+        raise HTTPException(status_code=404, detail="Job not found")
+
+    if job.status != "completed":
+        raise HTTPException(status_code=400, detail="Feedback is allowed only for completed jobs")
+
+    now = datetime.utcnow()
+    job.feedback_rating = payload.rating
+    job.feedback_comment = payload.comment
+    job.feedback_updated_at = now
+    db.add(job)
+    db.commit()
+    db.refresh(job)
+
+    logger.info(
+        "API_FEEDBACK_SAVED job_id=%s zoho_record_id=%s rating=%s",
+        job.id,
+        job.zoho_record_id,
+        payload.rating,
+    )
+
+    return ProfileFeedbackResponse(
+        job_id=job.id,
+        zoho_record_id=job.zoho_record_id,
+        rating=job.feedback_rating or payload.rating,
+        comment=job.feedback_comment,
+        feedback_updated_at=job.feedback_updated_at or now,
     )

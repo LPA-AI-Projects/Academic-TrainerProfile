@@ -123,3 +123,73 @@ def generate_profile_json(
         raise ValueError("Unsupported provider. Use 'openai' or 'anthropic'.")
 
     return payload, resolved_provider, raw
+
+
+def refine_profile_text(
+    *,
+    existing_profile_text: str,
+    profile_name: str,
+    feedback: str,
+    provider: str | None = None,
+    model_name: str | None = None,
+) -> tuple[str, str]:
+    """
+    Rewrite only the narrative profile text based on reviewer feedback.
+    Returns (refined_profile_text, resolved_provider).
+    """
+    settings = get_settings()
+    resolved_provider = provider or settings.default_provider
+    if model_name:
+        resolved_model = model_name
+    elif resolved_provider == "anthropic":
+        resolved_model = settings.anthropic_model or settings.default_model
+    else:
+        resolved_model = settings.default_model
+
+    prompt = (
+        "You are refining a trainer profile summary.\n"
+        "Rewrite ONLY the profile narrative based on feedback.\n"
+        "Do not include headings, JSON, bullets, markdown, or explanations.\n"
+        "Return plain text only.\n\n"
+        f"Trainer name: {profile_name}\n\n"
+        "Current profile text:\n"
+        f"{existing_profile_text}\n\n"
+        "Feedback:\n"
+        f"{feedback}\n"
+    )
+
+    if resolved_provider == "openai":
+        if not settings.openai_api_key:
+            if settings.allow_mock_generation:
+                return existing_profile_text, resolved_provider
+            raise ValueError("OPENAI_API_KEY is missing.")
+        client = OpenAI(api_key=settings.openai_api_key)
+        response = client.responses.create(
+            model=resolved_model,
+            input=[
+                {"role": "system", "content": "Return plain text only."},
+                {"role": "user", "content": prompt},
+            ],
+            temperature=0.2,
+        )
+        return (response.output_text or "").strip(), resolved_provider
+    if resolved_provider == "anthropic":
+        if not settings.anthropic_api_key:
+            if settings.allow_mock_generation:
+                return existing_profile_text, resolved_provider
+            raise ValueError("ANTHROPIC_API_KEY is missing.")
+        client = Anthropic(
+            api_key=settings.anthropic_api_key,
+            base_url=settings.anthropic_base_url or "https://api.anthropic.com",
+        )
+        response = client.messages.create(
+            model=resolved_model,
+            temperature=0.2,
+            max_tokens=1200,
+            system="Return plain text only.",
+            messages=[{"role": "user", "content": prompt}],
+        )
+        text_blocks = [b.text for b in response.content if hasattr(b, "text")]
+        return "\n".join(text_blocks).strip(), resolved_provider
+
+    raise ValueError("Unsupported provider. Use 'openai' or 'anthropic'.")
