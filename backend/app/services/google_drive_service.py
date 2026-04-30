@@ -1,9 +1,12 @@
+import logging
 import os
 from typing import Any
 
 import requests
 
 from ..config import get_settings
+
+logger = logging.getLogger("trainer_profile.google_drive")
 
 GOOGLE_TOKEN_URL = "https://oauth2.googleapis.com/token"
 GOOGLE_DRIVE_FILES_URL = "https://www.googleapis.com/drive/v3/files"
@@ -143,6 +146,12 @@ def upload_trainer_profile_pdf(*, pdf_bytes: bytes, unique_code: str, course_nam
     safe_course = _sanitize_drive_name(course_name)
     safe_unique = _sanitize_drive_name(unique_code) or "trainer"
     filename = f"{safe_unique}_{safe_course}.pdf"
+    logger.info(
+        "DRIVE_UPLOAD_START filename=%s pdf_bytes=%s course_folder=%s",
+        filename,
+        len(pdf_bytes),
+        safe_course,
+    )
     access_token = _get_access_token()
     parent = _resolve_parent_folder_id()
 
@@ -192,6 +201,13 @@ def upload_trainer_profile_pdf(*, pdf_bytes: bytes, unique_code: str, course_nam
         raise GoogleDriveUploadError("Google Drive PDF upload succeeded but file id was missing.")
 
     _set_public_read_permission(file_id, access_token)
+    logger.info(
+        "DRIVE_UPLOAD_DONE file_id=%s filename=%s folder_id=%s view_link=%s",
+        file_id,
+        filename,
+        course_folder["folder_id"],
+        f"https://drive.google.com/file/d/{file_id}/view",
+    )
     return {
         "file_id": file_id,
         "view_link": f"https://drive.google.com/file/d/{file_id}/view",

@@ -114,17 +114,42 @@ def _resolve_completed_trainer_job(
     if u:
         for j in rows:
             if _trainer_unique_from_job(j) == u:
+                logger.info(
+                    "RESOLVE_TRAINER_JOB matched job_id=%s zoho_record_id=%s unique_code=%s",
+                    j.id,
+                    j.zoho_record_id,
+                    u,
+                )
                 return j
+        logger.warning(
+            "RESOLVE_TRAINER_JOB no_match zoho_record_id=%s unique_code=%s candidates=%s codes_seen=%s",
+            z or "(any)",
+            u,
+            len(rows),
+            [_trainer_unique_from_job(j) for j in rows[:20]],
+        )
         raise HTTPException(
             status_code=404,
             detail="No job matches the provided unique_code for this lookup.",
         )
 
     if len(rows) > 1:
+        logger.warning(
+            "RESOLVE_TRAINER_JOB ambiguous zoho_record_id=%s candidate_count=%s job_ids=%s",
+            z,
+            len(rows),
+            [j.id for j in rows[:15]],
+        )
         raise HTTPException(
             status_code=400,
             detail="Multiple trainer profiles match; provide unique_code (and zoho_record_id when possible).",
         )
+    logger.info(
+        "RESOLVE_TRAINER_JOB single_match job_id=%s zoho_record_id=%s unique_code=%s",
+        rows[0].id,
+        rows[0].zoho_record_id,
+        _trainer_unique_from_job(rows[0]) or "(none)",
+    )
     return rows[0]
 
 
@@ -254,16 +279,59 @@ def health_db() -> dict[str, str]:
     response_model=GenerateProfileResponse,
     dependencies=[optional_api_key],
 )
-def generate_profile(payload: GenerateProfileRequest, request: Request, db: Session = Depends(get_db)):
+async def generate_profile(request: Request, db: Session = Depends(get_db)):
+    ctype = (request.headers.get("content-type") or "").lower()
+    if "application/x-www-form-urlencoded" not in ctype:
+        raise HTTPException(
+            status_code=415,
+            detail="Unsupported Media Type. Use application/x-www-form-urlencoded.",
+        )
+
+    form = await request.form()
+    form_data = {str(k): str(v).strip() for k, v in form.items()}
+    zid = (form_data.get("zoho_record_id") or form_data.get("record_id") or form_data.get("id") or "").strip()
+    if not zid:
+        raise HTTPException(
+            status_code=422,
+            detail="Missing zoho_record_id in form body (accepted aliases: zoho_record_id, record_id, id).",
+        )
+
+    outline_paths_raw = form_data.get("course_outline_paths") or ""
+    outline_list: list[str] = []
+    if outline_paths_raw:
+        outline_list = [p.strip() for p in outline_paths_raw.replace("\n", ",").split(",") if p.strip()]
+
+    prov_in = (form_data.get("provider") or "").strip()
+    prov: Literal["openai", "anthropic"] | None = None
+    if prov_in == "openai":
+        prov = "openai"
+    elif prov_in == "anthropic":
+        prov = "anthropic"
+
+    try:
+        payload = GenerateProfileRequest(
+            zoho_record_id=zid,
+            cv=(form_data.get("cv") or "").strip() or None,
+            cv_path=(form_data.get("cv_path") or "").strip() or None,
+            course_outline_paths=outline_list,
+            provider=prov,
+            model_name=(form_data.get("model_name") or "").strip() or None,
+            prompt_version=(form_data.get("prompt_version") or "v1").strip() or "v1",
+        )
+    except ValidationError as exc:
+        raise HTTPException(status_code=422, detail=exc.errors()) from exc
+
     logger.info(
-        "API_GENERATE_REQUEST zoho_record_id=%s cv_present=%s cv_path_present=%s outlines=%s provider=%s model=%s",
+        "API_GENERATE_FORM_URLENC_REQUEST zoho_record_id=%s cv_present=%s cv_path_present=%s outlines=%s provider=%s model=%s keys=%s",
         payload.zoho_record_id,
         bool(payload.cv),
         bool(payload.cv_path),
         len(payload.course_outline_paths),
         payload.provider or settings.default_provider,
         payload.model_name or settings.default_model,
+        sorted(form_data.keys()),
     )
+
     jobs = generate_and_store_profile(
         payload,
         db,
@@ -271,7 +339,7 @@ def generate_profile(payload: GenerateProfileRequest, request: Request, db: Sess
     )
     logger.info(
         "API_GENERATE_RESPONSE zoho_record_id=%s job_count=%s",
-        payload.zoho_record_id,
+        zid,
         len(jobs),
     )
     return _build_generate_profile_response(request, jobs)
@@ -295,6 +363,12 @@ def refine_profile(payload: RefineProfileRequest, request: Request, db: Session 
     Lookup: provide `unique_code` (Trainer_Unique_code) and optionally `zoho_record_id` (parent record).
     If only `zoho_record_id` is sent and a single job exists, that job is refined (legacy).
     """
+    logger.info(
+        "API_REFINE_REQUEST zoho_record_id=%s unique_code=%s feedback_chars=%s",
+        payload.zoho_record_id or "(none)",
+        payload.unique_code or "(none)",
+        len(payload.feedback or ""),
+    )
     job = _resolve_completed_trainer_job(
         db,
         zoho_record_id=payload.zoho_record_id,
@@ -355,6 +429,7 @@ def refine_profile(payload: RefineProfileRequest, request: Request, db: Session 
         logger.exception("API_V2_REFINE_PDF_FAILED job_id=%s", job.id)
 
     export = _export_links_for_job(request, job.id)
+    logger.info("API_REFINE_DONE job_id=%s zoho_record_id=%s pdf_url=%s", job.id, job.zoho_record_id, export.pdf_url)
     return GenerateProfileResponse(
         status=job.status,
         zoho_record_id=job.zoho_record_id,
@@ -659,6 +734,13 @@ def upload_profile_pdf_to_drive(payload: DriveUploadRequest, request: Request, d
         raise HTTPException(status_code=400, detail="Job is not ready for Drive upload")
 
     resolved_unique = (payload.unique_code or "").strip() or _trainer_unique_from_job(job) or "trainer"
+    logger.info(
+        "API_DRIVE_UPLOAD job_id=%s zoho_record_id=%s course_name=%s unique_code=%s",
+        job.id,
+        job.zoho_record_id,
+        payload.course_name,
+        resolved_unique,
+    )
 
     pdf_path = ensure_job_pdf_on_disk(db=db, job=job, public_base_url=_public_base_url(request))
     pdf_bytes = Path(pdf_path).read_bytes()

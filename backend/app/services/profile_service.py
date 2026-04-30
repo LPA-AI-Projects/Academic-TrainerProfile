@@ -18,6 +18,7 @@ from .zoho_service import (
     extract_file_id_from_zoho_field,
     extract_multiselect_lookup_ids,
     fetch_crm_record,
+    format_zoho_field_debug,
     get_file_id_from_record_field,
     get_scalar_field_str,
 )
@@ -309,19 +310,59 @@ def generate_from_parent_with_trainers(
     code_f = (settings.zoho_trainer_unique_code_field_api_name or "").strip()
     parent_id = (payload.zoho_record_id or "").strip()
 
+    logger.info(
+        "GEN_PARENT_START parent_module=%s parent_id=%s outline_field=%s lookup_field=%s "
+        "trainer_module=%s trainer_cv_field=%s trainer_code_field=%s",
+        parent_mod,
+        parent_id,
+        outline_f,
+        lookup_f,
+        trainer_mod,
+        cv_f,
+        code_f,
+    )
+
     parent_record = fetch_crm_record(parent_mod, parent_id)
+    parent_keys = sorted(parent_record.keys()) if isinstance(parent_record, dict) else []
+    logger.info(
+        "GEN_PARENT_RECORD_SUMMARY parent_id=%s field_name_count=%s field_names_head=%s",
+        parent_id,
+        len(parent_keys),
+        parent_keys[:60],
+    )
+
     outline_raw = parent_record.get(outline_f)
     outline_fid = extract_file_id_from_zoho_field(outline_raw)
+    logger.info(
+        "GEN_PARENT_OUTLINE_FIELD field=%s resolved_file_id=%s raw_type=%s raw_preview=%s",
+        outline_f,
+        outline_fid or "(none)",
+        type(outline_raw).__name__,
+        format_zoho_field_debug(outline_raw),
+    )
     if not outline_fid:
         raise ValueError(
             f"No outline file on parent record module={parent_mod!r} id={parent_id!r} field={outline_f!r}"
         )
 
-    trainer_ids = extract_multiselect_lookup_ids(parent_record.get(lookup_f))
+    lookup_raw = parent_record.get(lookup_f)
+    logger.info(
+        "GEN_PARENT_TRAINERS_LOOKUP_FIELD field=%s raw_type=%s raw_preview=%s",
+        lookup_f,
+        type(lookup_raw).__name__,
+        format_zoho_field_debug(lookup_raw),
+    )
+    trainer_ids = extract_multiselect_lookup_ids(lookup_raw)
     if not trainer_ids:
         raise ValueError(
             f"No linked trainer ids in multi-select lookup field={lookup_f!r} on parent record={parent_id!r}"
         )
+    logger.info(
+        "GEN_PARENT_TRAINER_IDS parent_id=%s trainer_count=%s trainer_ids=%s",
+        parent_id,
+        len(trainer_ids),
+        trainer_ids,
+    )
 
     jobs_out: list[TrainerProfileJob] = []
     outline_path: Path | None = None
@@ -330,10 +371,34 @@ def generate_from_parent_with_trainers(
         outline_path = download_crm_file_to_path(outline_fid, _temp_cv_dir())
         outline_text = read_text_from_path(str(outline_path))
         outline_blob = [outline_text]
+        logger.info(
+            "GEN_PARENT_OUTLINE_TEXT parent_id=%s outline_file_id=%s char_count=%s",
+            parent_id,
+            outline_fid,
+            len(outline_text),
+        )
 
         for trainer_id in trainer_ids:
             t0 = time.perf_counter()
-            cv_file_id = get_file_id_from_record_field(trainer_mod, trainer_id, cv_f)
+            trainer_row = fetch_crm_record(trainer_mod, trainer_id)
+            tr_keys = sorted(trainer_row.keys()) if isinstance(trainer_row, dict) else []
+            logger.info(
+                "GEN_PARENT_TRAINER_RECORD trainer_id=%s field_name_count=%s field_names_head=%s",
+                trainer_id,
+                len(tr_keys),
+                tr_keys[:50],
+            )
+
+            cv_raw = trainer_row.get(cv_f)
+            cv_file_id = extract_file_id_from_zoho_field(cv_raw)
+            logger.info(
+                "GEN_PARENT_TRAINER_CV_FIELD trainer_id=%s field=%s resolved_file_id=%s raw_type=%s raw_preview=%s",
+                trainer_id,
+                cv_f,
+                cv_file_id or "(none)",
+                type(cv_raw).__name__,
+                format_zoho_field_debug(cv_raw),
+            )
             if not cv_file_id:
                 logger.warning(
                     "GEN_PARENT_SKIP_TRAINER no CV file id module=%s trainer_id=%s field=%s",
@@ -343,7 +408,6 @@ def generate_from_parent_with_trainers(
                 )
                 continue
 
-            trainer_row = fetch_crm_record(trainer_mod, trainer_id)
             unique_code = get_scalar_field_str(trainer_row, code_f) or "Trainer"
             heading_label = unique_code.strip()[:40]
 
@@ -352,6 +416,13 @@ def generate_from_parent_with_trainers(
                 temp_cv = download_crm_file_to_path(cv_file_id, _temp_cv_dir())
                 cv_text = read_text_from_path(str(temp_cv))
                 cv_trimmed, outline_trimmed = truncate_inputs(cv_text, outline_blob)
+                logger.info(
+                    "GEN_PARENT_INPUT_SIZES trainer_id=%s cv_chars_after_truncate=%s outline_blocks=%s outline_chars_total=%s",
+                    trainer_id,
+                    len(cv_trimmed),
+                    len(outline_trimmed),
+                    sum(len(x) for x in outline_trimmed),
+                )
                 prompt = build_prompt(cv_trimmed, outline_trimmed, trainer_heading_name=heading_label)
 
                 cv_stored = f"zoho://record/{trainer_mod}/{cv_f}/{cv_file_id}"
@@ -428,8 +499,17 @@ def generate_and_store_profile(
         and not (payload.cv_path or "").strip()
         and not list(payload.course_outline_paths)
     ):
+        logger.info(
+            "GEN_ROUTE parent_multi_trainer_flow=1 zoho_record_id=%s (parent record id)",
+            payload.zoho_record_id,
+        )
         return generate_from_parent_with_trainers(payload, db, public_base_url=public_base_url)
 
+    logger.info(
+        "GEN_ROUTE legacy_single_record_flow=1 zoho_record_id=%s zoho_module=%s",
+        payload.zoho_record_id,
+        (settings.zoho_module_api_name or "").strip() or "(not set)",
+    )
     temp_zoho_paths: list[Path] = []
     stored_outline_refs: list[str] = list(payload.course_outline_paths)
     logger.info(

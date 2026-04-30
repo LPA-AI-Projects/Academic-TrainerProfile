@@ -4,6 +4,7 @@ Download CRM attachment bytes from Zoho using OAuth2 (refresh token or static ac
 
 from __future__ import annotations
 
+import json
 import logging
 import threading
 import time
@@ -15,6 +16,24 @@ from ..config import get_settings
 logger = logging.getLogger("trainer_profile.zoho")
 
 _TOKEN_CACHE: dict[str, object] = {"access_token": "", "expires_at": 0.0, "api_domain": ""}
+
+
+def format_zoho_field_debug(value: object, max_len: int = 500) -> str:
+    """Short, log-safe string for Zoho field payloads (truncated; never includes tokens)."""
+    if value is None:
+        return "(null)"
+    if isinstance(value, (str, int, float, bool)):
+        s = repr(value)
+        return s if len(s) <= max_len else s[: max_len - 3] + "..."
+    try:
+        s = json.dumps(value, default=str, ensure_ascii=False)
+    except TypeError:
+        s = repr(value)
+    if len(s) > max_len:
+        return s[: max_len - 3] + "..."
+    return s
+
+
 _TOKEN_LOCK = threading.Lock()
 
 # Refresh the access token this many seconds before Zoho's expires_in (access tokens are ~1 hour).
@@ -161,6 +180,7 @@ def download_crm_file_to_path(file_id: str, dest_dir: Path) -> Path:
     file_id = (file_id or "").strip()
     if not file_id:
         raise ValueError("Zoho file id is empty")
+    logger.info("ZOHO_FILE_DOWNLOAD_START file_id=%s dest_dir=%s", file_id, dest_dir)
     try:
         import requests
     except ModuleNotFoundError as exc:
@@ -289,6 +309,14 @@ def fetch_crm_record(module_api_name: str, crm_record_id: str) -> dict:
     row = rows[0]
     if not isinstance(row, dict):
         raise RuntimeError("Unexpected Zoho CRM record shape")
+    keys = sorted(row.keys())
+    logger.info(
+        "ZOHO_CRM_RECORD_GET module=%s id=%s field_count=%s field_names=%s",
+        module_api_name,
+        crm_record_id,
+        len(keys),
+        keys[:80],
+    )
     return row
 
 
@@ -302,7 +330,17 @@ def get_file_id_from_record_field(
         return None
     record = fetch_crm_record(module_api_name, crm_record_id)
     raw = record.get(field_api_name)
-    return extract_file_id_from_zoho_field(raw)
+    fid = extract_file_id_from_zoho_field(raw)
+    logger.info(
+        "ZOHO_CRM_FILE_FIELD module=%s record_id=%s field=%s resolved_file_id=%s raw_type=%s raw_preview=%s",
+        module_api_name,
+        crm_record_id,
+        field_api_name,
+        fid or "(none)",
+        type(raw).__name__,
+        format_zoho_field_debug(raw),
+    )
+    return fid
 
 
 def extract_multiselect_lookup_ids(raw: object) -> list[str]:
@@ -311,6 +349,9 @@ def extract_multiselect_lookup_ids(raw: object) -> list[str]:
     """
     out: list[str] = []
     if raw is None:
+        logger.info(
+            "ZOHO_MS_LOOKUP_PARSE raw_type=None raw_preview=(null) parsed_ids=[] count=0",
+        )
         return out
     if isinstance(raw, list):
         for item in raw:
@@ -320,11 +361,24 @@ def extract_multiselect_lookup_ids(raw: object) -> list[str]:
                     out.append(rid)
             elif isinstance(item, str) and item.strip():
                 out.append(item.strip())
+        logger.info(
+            "ZOHO_MS_LOOKUP_PARSE raw_type=list raw_preview=%s parsed_ids=%s count=%s",
+            format_zoho_field_debug(raw),
+            out,
+            len(out),
+        )
         return out
     if isinstance(raw, dict):
         rid = str(raw.get("id") or raw.get("Id") or "").strip()
         if rid:
             out.append(rid)
+    logger.info(
+        "ZOHO_MS_LOOKUP_PARSE raw_type=%s raw_preview=%s parsed_ids=%s count=%s",
+        type(raw).__name__,
+        format_zoho_field_debug(raw),
+        out,
+        len(out),
+    )
     return out
 
 
@@ -334,11 +388,23 @@ def get_scalar_field_str(record: dict, field_api_name: str) -> str | None:
         return None
     raw = record.get(field_api_name)
     if raw is None:
+        logger.info("ZOHO_SCALAR_FIELD field=%s raw_type=None resolved=(null)", field_api_name)
         return None
+    result: str | None = None
     if isinstance(raw, dict):
         for key in ("name", "Name", "display_value", "Display_Value", "value"):
             v = raw.get(key)
             if v is not None and str(v).strip():
-                return str(v).strip()
-    s = str(raw).strip()
-    return s or None
+                result = str(v).strip()
+                break
+    else:
+        s = str(raw).strip()
+        result = s or None
+    logger.info(
+        "ZOHO_SCALAR_FIELD field=%s raw_type=%s raw_preview=%s resolved=%s",
+        field_api_name,
+        type(raw).__name__,
+        format_zoho_field_debug(raw),
+        result or "(empty)",
+    )
+    return result
