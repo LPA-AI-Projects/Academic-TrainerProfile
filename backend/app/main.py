@@ -22,6 +22,7 @@ from .models import TrainerProfileJob
 from .schemas import (
     DriveUploadRequest,
     DriveUploadResponse,
+    GenerateProfileJobItem,
     GenerateProfileRequest,
     GenerateProfileResponse,
     JobStatusResponse,
@@ -83,6 +84,50 @@ _PDF_ROOT.mkdir(parents=True, exist_ok=True)
 app.mount("/pdfs", StaticFiles(directory=str(_PDF_ROOT)), name="pdfs")
 
 
+def _trainer_unique_from_job(job: TrainerProfileJob) -> str:
+    parsed = job.parsed_inputs if isinstance(job.parsed_inputs, dict) else {}
+    code = str(parsed.get("trainer_unique_code") or "").strip()
+    if code:
+        return code
+    gp = job.generated_profile if isinstance(job.generated_profile, dict) else {}
+    return str(gp.get("trainer_display_name") or "").strip()
+
+
+def _resolve_completed_trainer_job(
+    db: Session,
+    *,
+    zoho_record_id: str | None,
+    unique_code: str | None,
+) -> TrainerProfileJob:
+    """Pick one completed job: disambiguate with unique_code when several profiles share the same parent zoho_record_id."""
+    z = (zoho_record_id or "").strip()
+    u = (unique_code or "").strip()
+
+    q = db.query(TrainerProfileJob).filter(TrainerProfileJob.status == "completed")
+    if z:
+        q = q.filter(TrainerProfileJob.zoho_record_id == z)
+    rows = q.order_by(TrainerProfileJob.created_at.desc()).all()
+
+    if not rows:
+        raise HTTPException(status_code=404, detail="No completed profile job found for the given criteria.")
+
+    if u:
+        for j in rows:
+            if _trainer_unique_from_job(j) == u:
+                return j
+        raise HTTPException(
+            status_code=404,
+            detail="No job matches the provided unique_code for this lookup.",
+        )
+
+    if len(rows) > 1:
+        raise HTTPException(
+            status_code=400,
+            detail="Multiple trainer profiles match; provide unique_code (and zoho_record_id when possible).",
+        )
+    return rows[0]
+
+
 def _export_links_for_job(request: Request, job_id: str) -> ProfileExportLinks:
     base = _public_base_url(request)
     api_base = quote(base, safe=":/?&=")
@@ -97,6 +142,39 @@ def _export_links_for_job(request: Request, job_id: str) -> ProfileExportLinks:
         trainer_profile_pdf=pdf,
         pdf_url=pdf_file,
         job_json=job_json,
+    )
+
+
+def _build_generate_profile_response(request: Request, jobs: list[TrainerProfileJob]) -> GenerateProfileResponse:
+    if not jobs:
+        raise HTTPException(status_code=500, detail="No generation jobs returned")
+    failed = [j for j in jobs if j.status == "failed"]
+    if failed:
+        raise HTTPException(status_code=400, detail=failed[0].error_message or "Generation failed")
+    first = jobs[0]
+    export = _export_links_for_job(request, first.id)
+    items: list[GenerateProfileJobItem] | None = None
+    if len(jobs) > 1:
+        items = []
+        for j in jobs:
+            exp = _export_links_for_job(request, j.id)
+            parsed = j.parsed_inputs if isinstance(j.parsed_inputs, dict) else {}
+            tid = parsed.get("trainer_record_id")
+            items.append(
+                GenerateProfileJobItem(
+                    job_id=j.id,
+                    zoho_record_id=j.zoho_record_id,
+                    trainer_record_id=str(tid) if tid is not None else None,
+                    pdf_url=exp.pdf_url,
+                    generated_profile=j.generated_profile,
+                )
+            )
+    return GenerateProfileResponse(
+        status=first.status,
+        zoho_record_id=first.zoho_record_id,
+        pdf_url=export.pdf_url,
+        generated_profile=first.generated_profile,
+        jobs=items,
     )
 
 
@@ -186,28 +264,17 @@ def generate_profile(payload: GenerateProfileRequest, request: Request, db: Sess
         payload.provider or settings.default_provider,
         payload.model_name or settings.default_model,
     )
-    job = generate_and_store_profile(
+    jobs = generate_and_store_profile(
         payload,
         db,
         public_base_url=_public_base_url(request),
     )
-    if job.status == "failed":
-        logger.error("API_GENERATE_FAILED zoho_record_id=%s error=%s", payload.zoho_record_id, job.error_message)
-        raise HTTPException(status_code=400, detail=job.error_message or "Generation failed")
-    export = _export_links_for_job(request, job.id)
     logger.info(
-        "API_GENERATE_RESPONSE job_id=%s status=%s pdf_url=%s pdf_generation_error=%s",
-        job.id,
-        job.status,
-        export.pdf_url,
-        job.pdf_generation_error or "",
+        "API_GENERATE_RESPONSE zoho_record_id=%s job_count=%s",
+        payload.zoho_record_id,
+        len(jobs),
     )
-    return GenerateProfileResponse(
-        status=job.status,
-        zoho_record_id=job.zoho_record_id,
-        pdf_url=export.pdf_url,
-        generated_profile=job.generated_profile,
-    )
+    return _build_generate_profile_response(request, jobs)
 
 
 @app.post(
@@ -224,37 +291,43 @@ def generate_profile(payload: GenerateProfileRequest, request: Request, db: Sess
 )
 def refine_profile(payload: RefineProfileRequest, request: Request, db: Session = Depends(get_db)):
     """
-    v2 behavior:
-    - Input: zoho_record_id + profile_name + feedback
-    - Finds latest completed profile job by zoho_record_id
-    - Refines only `generated_profile.profile` from feedback
-    - Preserves all other generated fields as-is
+    Refine profile narrative from feedback.
+    Lookup: provide `unique_code` (Trainer_Unique_code) and optionally `zoho_record_id` (parent record).
+    If only `zoho_record_id` is sent and a single job exists, that job is refined (legacy).
     """
-    job = (
-        db.query(TrainerProfileJob)
-        .filter(TrainerProfileJob.zoho_record_id == payload.zoho_record_id)
-        .order_by(TrainerProfileJob.created_at.desc())
-        .first()
+    job = _resolve_completed_trainer_job(
+        db,
+        zoho_record_id=payload.zoho_record_id,
+        unique_code=payload.unique_code,
     )
-    if not job:
-        raise HTTPException(status_code=404, detail="No job found for provided zoho_record_id")
-    if job.status != "completed" or not job.generated_profile:
-        raise HTTPException(status_code=400, detail="Latest job is not ready for feedback refinement")
+    if not job.generated_profile:
+        raise HTTPException(status_code=400, detail="Job is not ready for feedback refinement")
 
     current_profile = str((job.generated_profile or {}).get("profile") or "").strip()
     if not current_profile:
         raise HTTPException(status_code=400, detail="Existing profile text is empty for this record")
 
+    refine_label = (
+        (payload.profile_name or "").strip()
+        or _trainer_unique_from_job(job)
+        or "Trainer"
+    )
+
     try:
         refined_text, resolved_provider = refine_profile_text(
             existing_profile_text=current_profile,
-            profile_name=(payload.profile_name or "Trainer").strip() or "Trainer",
+            profile_name=refine_label,
             feedback=payload.feedback,
             provider=job.provider or settings.default_provider,
             model_name=job.model_name or settings.default_model,
         )
     except Exception as exc:
-        logger.exception("API_V2_REFINE_FAILED zoho_record_id=%s", payload.zoho_record_id)
+        logger.exception(
+            "API_REFINE_FAILED job_id=%s zoho_record_id=%s unique_code=%s",
+            job.id,
+            job.zoho_record_id,
+            payload.unique_code,
+        )
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
     refined_text = refined_text.strip() or current_profile
@@ -427,7 +500,7 @@ def generate_profile_form(
     )
 
     try:
-        job = generate_and_store_profile(
+        jobs = generate_and_store_profile(
             payload,
             db,
             public_base_url=_public_base_url(request),
@@ -436,22 +509,12 @@ def generate_profile_form(
         for p in temp_uploads:
             p.unlink(missing_ok=True)
 
-    if job.status == "failed":
-        logger.error("API_GENERATE_FORM_FAILED zoho_record_id=%s error=%s", zoho_record_id, job.error_message)
-        raise HTTPException(status_code=400, detail=job.error_message or "Generation failed")
-    export = _export_links_for_job(request, job.id)
     logger.info(
-        "API_GENERATE_FORM_RESPONSE job_id=%s status=%s pdf_url=%s",
-        job.id,
-        job.status,
-        export.pdf_url,
+        "API_GENERATE_FORM_RESPONSE zoho_record_id=%s job_count=%s",
+        zoho_record_id,
+        len(jobs),
     )
-    return GenerateProfileResponse(
-        status=job.status,
-        zoho_record_id=job.zoho_record_id,
-        pdf_url=export.pdf_url,
-        generated_profile=job.generated_profile,
-    )
+    return _build_generate_profile_response(request, jobs)
 
 
 @app.get(
@@ -583,24 +646,28 @@ def save_profile_feedback(job_id: str, payload: ProfileFeedbackRequest, db: Sess
 )
 def upload_profile_pdf_to_drive(payload: DriveUploadRequest, request: Request, db: Session = Depends(get_db)):
     """
-    Upload latest completed profile PDF (by zoho_record_id) into Drive folder hierarchy:
-    ai_automation/trainer_profile/{course_name}/{course_name}_trainerprofile.pdf
+    Upload completed profile PDF into Drive:
+    ai_automation/trainer_profile/{course_name}/{unique_code}_{course_name}.pdf
+    Use unique_code + zoho_record_id when multiple trainers share the same parent record.
     """
-    job = (
-        db.query(TrainerProfileJob)
-        .filter(TrainerProfileJob.zoho_record_id == payload.zoho_record_id)
-        .order_by(TrainerProfileJob.created_at.desc())
-        .first()
+    job = _resolve_completed_trainer_job(
+        db,
+        zoho_record_id=payload.zoho_record_id,
+        unique_code=payload.unique_code,
     )
-    if not job:
-        raise HTTPException(status_code=404, detail="No job found for provided zoho_record_id")
-    if job.status != "completed" or not job.generated_profile:
-        raise HTTPException(status_code=400, detail="Latest job is not ready for Drive upload")
+    if not job.generated_profile:
+        raise HTTPException(status_code=400, detail="Job is not ready for Drive upload")
+
+    resolved_unique = (payload.unique_code or "").strip() or _trainer_unique_from_job(job) or "trainer"
 
     pdf_path = ensure_job_pdf_on_disk(db=db, job=job, public_base_url=_public_base_url(request))
     pdf_bytes = Path(pdf_path).read_bytes()
     try:
-        result = upload_trainer_profile_pdf(pdf_bytes=pdf_bytes, course_name=payload.course_name)
+        result = upload_trainer_profile_pdf(
+            pdf_bytes=pdf_bytes,
+            unique_code=resolved_unique,
+            course_name=payload.course_name,
+        )
     except GoogleDriveUploadError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
@@ -608,5 +675,6 @@ def upload_profile_pdf_to_drive(payload: DriveUploadRequest, request: Request, d
         status="completed",
         zoho_record_id=job.zoho_record_id,
         course_name=payload.course_name,
+        unique_code=resolved_unique,
         pdf_link=result["view_link"],
     )

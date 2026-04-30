@@ -303,3 +303,42 @@ def get_file_id_from_record_field(
     record = fetch_crm_record(module_api_name, crm_record_id)
     raw = record.get(field_api_name)
     return extract_file_id_from_zoho_field(raw)
+
+
+def extract_multiselect_lookup_ids(raw: object) -> list[str]:
+    """
+    Parse Zoho multi-select lookup / lookup list values into CRM record id strings.
+    """
+    out: list[str] = []
+    if raw is None:
+        return out
+    if isinstance(raw, list):
+        for item in raw:
+            if isinstance(item, dict):
+                rid = str(item.get("id") or item.get("Id") or "").strip()
+                if rid:
+                    out.append(rid)
+            elif isinstance(item, str) and item.strip():
+                out.append(item.strip())
+        return out
+    if isinstance(raw, dict):
+        rid = str(raw.get("id") or raw.get("Id") or "").strip()
+        if rid:
+            out.append(rid)
+    return out
+
+
+def get_scalar_field_str(record: dict, field_api_name: str) -> str | None:
+    """Read a text / number / auto-number / single-line field as string."""
+    if not field_api_name:
+        return None
+    raw = record.get(field_api_name)
+    if raw is None:
+        return None
+    if isinstance(raw, dict):
+        for key in ("name", "Name", "display_value", "Display_Value", "value"):
+            v = raw.get(key)
+            if v is not None and str(v).strip():
+                return str(v).strip()
+    s = str(raw).strip()
+    return s or None

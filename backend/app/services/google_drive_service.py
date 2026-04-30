@@ -131,17 +131,18 @@ def _set_public_read_permission(file_id: str, access_token: str) -> None:
         )
 
 
-def upload_trainer_profile_pdf(*, pdf_bytes: bytes, course_name: str) -> dict[str, str]:
+def upload_trainer_profile_pdf(*, pdf_bytes: bytes, unique_code: str, course_name: str) -> dict[str, str]:
     """
     Ensure Drive hierarchy:
     {parent}/ai_automation/trainer_profile/{course_name}/
-    Upload file as: {course_name}_trainerprofile.pdf
+    Upload file as: {unique_code}_{course_name}.pdf
     """
     if not pdf_bytes:
         raise GoogleDriveUploadError("Cannot upload empty PDF bytes to Google Drive.")
 
     safe_course = _sanitize_drive_name(course_name)
-    filename = f"{safe_course}_trainerprofile.pdf"
+    safe_unique = _sanitize_drive_name(unique_code) or "trainer"
+    filename = f"{safe_unique}_{safe_course}.pdf"
     access_token = _get_access_token()
     parent = _resolve_parent_folder_id()
 

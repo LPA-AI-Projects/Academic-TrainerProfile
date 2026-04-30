@@ -32,6 +32,8 @@ class GenerateProfileRequest(BaseModel):
 
 
 class GeneratedProfilePayload(BaseModel):
+    # When set, the HTML template uses this for the main heading instead of "This Trainer".
+    trainer_display_name: str | None = None
     professional_titles: list[str] = Field(default_factory=list)
     csat_score: float | None = None
     batches_delivered: int | None = None
@@ -62,6 +64,14 @@ class ProfileExportLinks(BaseModel):
     )
 
 
+class GenerateProfileJobItem(BaseModel):
+    job_id: str
+    zoho_record_id: str
+    trainer_record_id: str | None = None
+    pdf_url: str
+    generated_profile: GeneratedProfilePayload
+
+
 class GenerateProfileResponse(BaseModel):
     """Minimal webhook-friendly payload from POST /api/v1/profiles/generate."""
 
@@ -69,12 +79,35 @@ class GenerateProfileResponse(BaseModel):
     zoho_record_id: str
     pdf_url: str
     generated_profile: GeneratedProfilePayload
+    # When the parent-record + multi-trainer Zoho flow runs, one entry per trainer.
+    jobs: list[GenerateProfileJobItem] | None = None
 
 
 class RefineProfileRequest(BaseModel):
-    zoho_record_id: str = Field(min_length=1, max_length=128)
     feedback: str = Field(min_length=1, max_length=4000)
+    # Parent course / campaign record id (same as webhook zoho_record_id when using parent flow).
+    zoho_record_id: str | None = Field(default=None, max_length=128)
+    # Trainer_Unique_code from Zoho — use with zoho_record_id to pick the right job when multiple trainers exist.
+    unique_code: str | None = Field(default=None, max_length=128)
     profile_name: str | None = Field(default=None, max_length=200)
+
+    @field_validator("zoho_record_id", "unique_code", mode="before")
+    @classmethod
+    def empty_optional_ids(cls, value: object) -> str | None:
+        if value is None:
+            return None
+        if isinstance(value, str):
+            s = value.strip()
+            return s or None
+        return str(value).strip() or None
+
+    @model_validator(mode="after")
+    def require_lookup_key(self) -> RefineProfileRequest:
+        z = (self.zoho_record_id or "").strip()
+        u = (self.unique_code or "").strip()
+        if not z and not u:
+            raise ValueError("Provide at least one of zoho_record_id or unique_code.")
+        return self
 
 
 class JobStatusResponse(BaseModel):
@@ -121,10 +154,13 @@ class ProfileFeedbackResponse(BaseModel):
 class DriveUploadRequest(BaseModel):
     zoho_record_id: str = Field(min_length=1, max_length=128)
     course_name: str = Field(min_length=1, max_length=200)
+    # Trainer unique code (matches Trainer_Unique_code / parsed trainer_unique_code). Required when multiple trainers share the same zoho_record_id.
+    unique_code: str | None = Field(default=None, max_length=128)
 
 
 class DriveUploadResponse(BaseModel):
     status: str
     zoho_record_id: str
     course_name: str
+    unique_code: str | None = None
     pdf_link: str

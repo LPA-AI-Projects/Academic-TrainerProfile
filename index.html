@@ -339,7 +339,7 @@
       const applyProfile = (profile) => {
         const p = profile || {};
 
-        setText('cv-p1-name', 'This Trainer');
+        setText('cv-p1-name', clean(p.trainer_display_name) || 'This Trainer');
         setText('cv-p1-tagline', uniq(p.professional_titles).join(' | '));
 
         setText('cv-csat-score-val',

@@ -21,8 +21,11 @@ PROFILE_OUTPUT_SCHEMA = {
 }
 
 
-def build_prompt(cv_text: str, outlines: list[str]) -> str:
+def build_prompt(
+    cv_text: str, outlines: list[str], *, trainer_heading_name: str | None = None
+) -> str:
     has_outline = bool(outlines)
+    heading = (trainer_heading_name or "").strip()
 
     base_rules = [
         "You are a professional Trainer Profile Writer for Learners Point Academy, Dubai.",
@@ -32,6 +35,14 @@ def build_prompt(cv_text: str, outlines: list[str]) -> str:
         "If a detail is missing from source text, leave it out instead of inventing.",
         "Narrative style must be polished, client-facing, in third person, with about 20% human warmth.",
         "In profile narrative sections, prefer the phrasing 'The Trainer' / 'This Trainer' instead of personal names.",
+        *(
+            [
+                f"When a trainer heading label is provided, set JSON 'full_name' to exactly this value (trimmed, max 18 characters): {heading[:18]!r}.",
+                "Keep the profile body in third person using 'The Trainer' / 'This Trainer' phrasing; the heading label is for the 'full_name' field only.",
+            ]
+            if heading
+            else []
+        ),
         "Make course-domain relevance the main focus of profile, experience ordering, and skills (without copying modules verbatim).",
         "Extract every professional role found in CV; do not omit, merge, or summarize away any role.",
         "For professional_experience, keep one role per item and preserve title + organization clearly.",

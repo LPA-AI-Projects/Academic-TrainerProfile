@@ -51,6 +51,19 @@ class Settings(BaseSettings):
     zoho_cv_field_api_name: str | None = None
     zoho_outline_field_api_name: str | None = None
 
+    # Optional: course / parent record flow — outline on parent, multi-select lookup to Trainers, CV on each trainer.
+    # When all of these are set, `zoho_record_id` in the request is the *parent* record id (e.g. course).
+    zoho_parent_module_api_name: str | None = None
+    # File upload on parent (e.g. Final_Course_Outline).
+    zoho_parent_outline_field_api_name: str | None = None
+    # Multi-select lookup on parent → Trainers (field API name on the parent module).
+    zoho_parent_trainers_lookup_field_api_name: str | None = None
+    # Target module for each linked id (API name, e.g. Trainers).
+    zoho_trainer_module_api_name: str | None = None
+    zoho_trainer_cv_field_api_name: str | None = None
+    # Auto number or text — shown as main heading (e.g. Trainer_Unique_code).
+    zoho_trainer_unique_code_field_api_name: str | None = None
+
     # Google Drive OAuth (for uploading generated trainer profile PDFs).
     google_client_id: str | None = None
     google_client_secret: str | None = None

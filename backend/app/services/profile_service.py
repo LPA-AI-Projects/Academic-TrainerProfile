@@ -13,7 +13,14 @@ from .file_parser import read_text_from_path, truncate_inputs
 from .job_pdf import ensure_job_pdf_on_disk
 from .llm_client import generate_profile_json
 from .prompt_builder import build_prompt
-from .zoho_service import download_crm_file_to_path, get_file_id_from_record_field
+from .zoho_service import (
+    download_crm_file_to_path,
+    extract_file_id_from_zoho_field,
+    extract_multiselect_lookup_ids,
+    fetch_crm_record,
+    get_file_id_from_record_field,
+    get_scalar_field_str,
+)
 
 logger = logging.getLogger("trainer_profile.generate")
 
@@ -204,11 +211,224 @@ def normalize_profile_payload(raw: dict) -> dict:
     return normalized
 
 
-def generate_and_store_profile(
-    payload: GenerateProfileRequest, db: Session, *, public_base_url: str | None = None
+def _complete_job_after_prompt(
+    job: TrainerProfileJob,
+    db: Session,
+    payload: GenerateProfileRequest,
+    public_base_url: str | None,
+    prompt: str,
+    t0: float,
+    *,
+    trainer_display_name: str | None = None,
 ) -> TrainerProfileJob:
     settings = get_settings()
+    try:
+        t_llm = time.perf_counter()
+        generated_json, resolved_provider, raw_output = generate_profile_json(
+            prompt=prompt,
+            provider=payload.provider,
+            model_name=payload.model_name,
+        )
+        gen = normalize_profile_payload(generated_json)
+        if trainer_display_name and str(trainer_display_name).strip():
+            gen["trainer_display_name"] = str(trainer_display_name).strip()[:40]
+        job.generated_profile = gen
+        job.provider = resolved_provider
+        job.raw_model_output = raw_output
+        job.status = "completed"
+        job.pdf_generation_error = None
+        logger.info(
+            "GEN_LLM_DONE job_id=%s provider=%s model=%s llm_ms=%.1f raw_chars=%s",
+            job.id,
+            resolved_provider,
+            job.model_name,
+            (time.perf_counter() - t_llm) * 1000,
+            len(raw_output or ""),
+        )
+    except Exception as exc:
+        job.status = "failed"
+        job.error_message = str(exc)
+        logger.exception("GEN_LLM_FAILED zoho_record_id=%s", payload.zoho_record_id)
+
+    db.add(job)
+    db.commit()
+    db.refresh(job)
+
+    if job.status == "completed":
+        public_base = (public_base_url or settings.public_base_url or "http://127.0.0.1:8000").rstrip("/")
+        try:
+            t_pdf = time.perf_counter()
+            pdf_path = ensure_job_pdf_on_disk(db=db, job=job, public_base_url=public_base)
+            logger.info(
+                "GEN_PDF_DONE job_id=%s pdf_ms=%.1f pdf_path=%s",
+                job.id,
+                (time.perf_counter() - t_pdf) * 1000,
+                str(pdf_path),
+            )
+        except Exception as exc:
+            job.pdf_generation_error = str(exc)
+            db.add(job)
+            db.commit()
+            db.refresh(job)
+            logger.exception("GEN_PDF_FAILED job_id=%s error=%s", job.id, exc)
+
+    logger.info(
+        "GEN_DONE job_id=%s status=%s total_ms=%.1f pdf_error=%s",
+        job.id,
+        job.status,
+        (time.perf_counter() - t0) * 1000,
+        bool(job.pdf_generation_error),
+    )
+    return job
+
+
+def _parent_multi_trainer_enabled(settings: object) -> bool:
+    return bool(
+        (getattr(settings, "zoho_parent_module_api_name", None) or "").strip()
+        and (getattr(settings, "zoho_parent_outline_field_api_name", None) or "").strip()
+        and (getattr(settings, "zoho_parent_trainers_lookup_field_api_name", None) or "").strip()
+        and (getattr(settings, "zoho_trainer_module_api_name", None) or "").strip()
+        and (getattr(settings, "zoho_trainer_cv_field_api_name", None) or "").strip()
+        and (getattr(settings, "zoho_trainer_unique_code_field_api_name", None) or "").strip()
+    )
+
+
+def generate_from_parent_with_trainers(
+    payload: GenerateProfileRequest, db: Session, *, public_base_url: str | None = None
+) -> list[TrainerProfileJob]:
+    """
+    Parent record provides outline file + multi-select lookup to Trainers.
+    For each linked trainer: Trainer_CV + Trainer_Unique_code with the same outline text.
+    """
+    settings = get_settings()
+    parent_mod = (settings.zoho_parent_module_api_name or "").strip()
+    outline_f = (settings.zoho_parent_outline_field_api_name or "").strip()
+    lookup_f = (settings.zoho_parent_trainers_lookup_field_api_name or "").strip()
+    trainer_mod = (settings.zoho_trainer_module_api_name or "").strip()
+    cv_f = (settings.zoho_trainer_cv_field_api_name or "").strip()
+    code_f = (settings.zoho_trainer_unique_code_field_api_name or "").strip()
+    parent_id = (payload.zoho_record_id or "").strip()
+
+    parent_record = fetch_crm_record(parent_mod, parent_id)
+    outline_raw = parent_record.get(outline_f)
+    outline_fid = extract_file_id_from_zoho_field(outline_raw)
+    if not outline_fid:
+        raise ValueError(
+            f"No outline file on parent record module={parent_mod!r} id={parent_id!r} field={outline_f!r}"
+        )
+
+    trainer_ids = extract_multiselect_lookup_ids(parent_record.get(lookup_f))
+    if not trainer_ids:
+        raise ValueError(
+            f"No linked trainer ids in multi-select lookup field={lookup_f!r} on parent record={parent_id!r}"
+        )
+
+    jobs_out: list[TrainerProfileJob] = []
+    outline_path: Path | None = None
+
+    try:
+        outline_path = download_crm_file_to_path(outline_fid, _temp_cv_dir())
+        outline_text = read_text_from_path(str(outline_path))
+        outline_blob = [outline_text]
+
+        for trainer_id in trainer_ids:
+            t0 = time.perf_counter()
+            cv_file_id = get_file_id_from_record_field(trainer_mod, trainer_id, cv_f)
+            if not cv_file_id:
+                logger.warning(
+                    "GEN_PARENT_SKIP_TRAINER no CV file id module=%s trainer_id=%s field=%s",
+                    trainer_mod,
+                    trainer_id,
+                    cv_f,
+                )
+                continue
+
+            trainer_row = fetch_crm_record(trainer_mod, trainer_id)
+            unique_code = get_scalar_field_str(trainer_row, code_f) or "Trainer"
+            heading_label = unique_code.strip()[:40]
+
+            temp_cv: Path | None = None
+            try:
+                temp_cv = download_crm_file_to_path(cv_file_id, _temp_cv_dir())
+                cv_text = read_text_from_path(str(temp_cv))
+                cv_trimmed, outline_trimmed = truncate_inputs(cv_text, outline_blob)
+                prompt = build_prompt(cv_trimmed, outline_trimmed, trainer_heading_name=heading_label)
+
+                cv_stored = f"zoho://record/{trainer_mod}/{cv_f}/{cv_file_id}"
+                outline_refs = [f"zoho://record/{parent_mod}/{outline_f}/{outline_fid}"]
+
+                job = TrainerProfileJob(
+                    zoho_record_id=payload.zoho_record_id,
+                    cv_path=cv_stored,
+                    course_outline_paths=outline_refs,
+                    provider=payload.provider or settings.default_provider,
+                    model_name=payload.model_name or settings.default_model,
+                    status="processing",
+                    prompt_version=payload.prompt_version,
+                    parsed_inputs={
+                        "cv_excerpt": cv_trimmed[:4000],
+                        "outline_count": len(outline_trimmed),
+                        "parent_record_id": parent_id,
+                        "parent_module": parent_mod,
+                        "trainer_record_id": trainer_id,
+                        "trainer_unique_code": heading_label,
+                    },
+                )
+                db.add(job)
+                db.commit()
+                db.refresh(job)
+                logger.info(
+                    "GEN_PARENT_JOB_CREATED job_id=%s trainer_id=%s unique_code=%s",
+                    job.id,
+                    trainer_id,
+                    heading_label,
+                )
+
+                _complete_job_after_prompt(
+                    job,
+                    db,
+                    payload,
+                    public_base_url,
+                    prompt,
+                    t0,
+                    trainer_display_name=heading_label,
+                )
+                db.refresh(job)
+                jobs_out.append(job)
+            finally:
+                if temp_cv and temp_cv.is_file():
+                    try:
+                        temp_cv.unlink()
+                    except OSError as exc:
+                        logger.warning("GEN_TEMP_REMOVE_FAILED path=%s error=%s", temp_cv, exc)
+
+        if not jobs_out:
+            raise ValueError(
+                "No trainer profiles were generated: check Trainer_CV file upload on each linked trainer record."
+            )
+        return jobs_out
+    finally:
+        if outline_path and outline_path.is_file():
+            try:
+                outline_path.unlink()
+                logger.info("GEN_TEMP_REMOVED path=%s", outline_path)
+            except OSError as exc:
+                logger.warning("GEN_TEMP_REMOVE_FAILED path=%s error=%s", outline_path, exc)
+
+
+def generate_and_store_profile(
+    payload: GenerateProfileRequest, db: Session, *, public_base_url: str | None = None
+) -> list[TrainerProfileJob]:
+    settings = get_settings()
     t0 = time.perf_counter()
+
+    if (
+        _parent_multi_trainer_enabled(settings)
+        and not (payload.cv or "").strip()
+        and not (payload.cv_path or "").strip()
+        and not list(payload.course_outline_paths)
+    ):
+        return generate_from_parent_with_trainers(payload, db, public_base_url=public_base_url)
 
     temp_zoho_paths: list[Path] = []
     stored_outline_refs: list[str] = list(payload.course_outline_paths)
@@ -331,58 +551,5 @@ def generate_and_store_profile(
     db.refresh(job)
     logger.info("GEN_JOB_CREATED job_id=%s status=%s cv_path=%s", job.id, job.status, job.cv_path)
 
-    try:
-        t_llm = time.perf_counter()
-        generated_json, resolved_provider, raw_output = generate_profile_json(
-            prompt=prompt,
-            provider=payload.provider,
-            model_name=payload.model_name,
-        )
-        job.generated_profile = normalize_profile_payload(generated_json)
-        job.provider = resolved_provider
-        job.raw_model_output = raw_output
-        job.status = "completed"
-        job.pdf_generation_error = None
-        logger.info(
-            "GEN_LLM_DONE job_id=%s provider=%s model=%s llm_ms=%.1f raw_chars=%s",
-            job.id,
-            resolved_provider,
-            job.model_name,
-            (time.perf_counter() - t_llm) * 1000,
-            len(raw_output or ""),
-        )
-    except Exception as exc:
-        job.status = "failed"
-        job.error_message = str(exc)
-        logger.exception("GEN_LLM_FAILED zoho_record_id=%s", payload.zoho_record_id)
-
-    db.add(job)
-    db.commit()
-    db.refresh(job)
-
-    if job.status == "completed":
-        public_base = (public_base_url or settings.public_base_url or "http://127.0.0.1:8000").rstrip("/")
-        try:
-            t_pdf = time.perf_counter()
-            pdf_path = ensure_job_pdf_on_disk(db=db, job=job, public_base_url=public_base)
-            logger.info(
-                "GEN_PDF_DONE job_id=%s pdf_ms=%.1f pdf_path=%s",
-                job.id,
-                (time.perf_counter() - t_pdf) * 1000,
-                str(pdf_path),
-            )
-        except Exception as exc:
-            job.pdf_generation_error = str(exc)
-            db.add(job)
-            db.commit()
-            db.refresh(job)
-            logger.exception("GEN_PDF_FAILED job_id=%s error=%s", job.id, exc)
-
-    logger.info(
-        "GEN_DONE job_id=%s status=%s total_ms=%.1f pdf_error=%s",
-        job.id,
-        job.status,
-        (time.perf_counter() - t0) * 1000,
-        bool(job.pdf_generation_error),
-    )
-    return job
+    job = _complete_job_after_prompt(job, db, payload, public_base_url, prompt, t0, trainer_display_name=None)
+    return [job]
