@@ -21,6 +21,7 @@ from .zoho_service import (
     format_zoho_field_debug,
     get_file_id_from_record_field,
     get_scalar_field_str,
+    search_crm_record_ids_by_field_equals,
 )
 
 logger = get_logger(__name__)
@@ -359,9 +360,35 @@ def generate_from_parent_with_trainers(
         format_zoho_field_debug(lookup_raw),
     )
     trainer_ids = extract_multiselect_lookup_ids(lookup_raw)
+    if (
+        not trainer_ids
+        and getattr(settings, "zoho_trainer_lookup_resolve_by_name", False)
+        and (getattr(settings, "zoho_trainer_search_field_api_name", None) or "").strip()
+        and isinstance(lookup_raw, str)
+        and lookup_raw.strip()
+    ):
+        match_field = (settings.zoho_trainer_search_field_api_name or "").strip()
+        for part in [p.strip() for p in re.split(r"[,;]", lookup_raw) if p.strip()]:
+            for rid in search_crm_record_ids_by_field_equals(trainer_mod, match_field, part):
+                if rid not in trainer_ids:
+                    trainer_ids.append(rid)
+        logger.info(
+            "GEN_PARENT_TRAINER_IDS_FROM_NAME_SEARCH parent_id=%s match_field=%s resolved_count=%s ids=%s",
+            parent_id,
+            match_field,
+            len(trainer_ids),
+            trainer_ids,
+        )
     if not trainer_ids:
         raise ValueError(
-            f"No linked trainer ids in multi-select lookup field={lookup_f!r} on parent record={parent_id!r}"
+            f"No trainer record ids from parent field={lookup_f!r} on record={parent_id!r}. "
+            "Zoho multi-select lookup fields return a list of {{id, name}} per CRM API Get Record. "
+            "Your API returned "
+            f"{type(lookup_raw).__name__} {lookup_raw!r}. "
+            "Fix: use a multi-select lookup field to Trainers on the parent layout, "
+            "or set ZOHO_TRAINER_LOOKUP_RESOLVE_BY_NAME=true and "
+            "ZOHO_TRAINER_SEARCH_FIELD_API_NAME to a Trainers-module field to match this text "
+            "(see Zoho Search Records API)."
         )
     logger.info(
         "GEN_PARENT_TRAINER_IDS parent_id=%s trainer_count=%s trainer_ids=%s",

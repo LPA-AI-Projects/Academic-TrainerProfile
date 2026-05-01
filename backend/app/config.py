@@ -193,6 +193,10 @@ class Settings(BaseSettings):
     zoho_trainer_cv_field_api_name: str | None = None
     # Auto number or text — shown as main heading (e.g. Trainer_Unique_code).
     zoho_trainer_unique_code_field_api_name: str | None = None
+    # When parent lookup returns plain text (not {id,name}), resolve Trainers via Search Records API.
+    zoho_trainer_lookup_resolve_by_name: bool = False
+    # Field on the **Trainers** module to match (API name), e.g. Name or Last_Name — required for name resolve.
+    zoho_trainer_search_field_api_name: str | None = None
 
     # Google Drive OAuth (for uploading generated trainer profile PDFs).
     google_client_id: str | None = None
@@ -200,6 +204,13 @@ class Settings(BaseSettings):
     google_refresh_token: str | None = None
     # Optional parent folder in Drive; if empty, My Drive root is used.
     google_drive_folder_id: str | None = None
+
+    @field_validator("zoho_trainer_lookup_resolve_by_name", mode="before")
+    @classmethod
+    def coerce_zoho_trainer_resolve_bool(cls, v: object) -> bool:
+        if isinstance(v, str):
+            return v.strip().lower() in ("1", "true", "yes", "on")
+        return bool(v)
 
     model_config = SettingsConfigDict(
         env_file=".env",

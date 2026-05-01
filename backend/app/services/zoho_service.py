@@ -244,6 +244,11 @@ def download_crm_file_to_path(file_id: str, dest_dir: Path) -> Path:
 
 def _crm_v2_get(path: str) -> dict:
     """GET Zoho CRM v2 path (e.g. /crm/v2/Leads/123)."""
+    return _crm_v2_get_with_params(path, None)
+
+
+def _crm_v2_get_with_params(path: str, params: dict | None) -> dict:
+    """GET with optional query string (e.g. Search Records ``?criteria=...``)."""
     try:
         import requests
     except ModuleNotFoundError as exc:
@@ -255,13 +260,13 @@ def _crm_v2_get(path: str) -> dict:
     base = _crm_api_base()
     url = f"{base}{path}"
     headers = {"Authorization": f"Zoho-oauthtoken {token}"}
-    resp = requests.get(url, headers=headers, timeout=120)
+    resp = requests.get(url, headers=headers, params=params or {}, timeout=120)
     if resp.status_code == 401 and _can_use_refresh_token():
         logger.warning("Zoho CRM GET got 401; refreshing access token and retrying once path=%s", path)
         _invalidate_token_cache()
         token = _get_access_token(force_refresh=True)
         headers = {"Authorization": f"Zoho-oauthtoken {token}"}
-        resp = requests.get(url, headers=headers, timeout=120)
+        resp = requests.get(url, headers=headers, params=params or {}, timeout=120)
     if not resp.ok:
         logger.error(
             "Zoho CRM GET failed path=%s status=%s body=%s",
@@ -271,6 +276,60 @@ def _crm_v2_get(path: str) -> dict:
         )
     resp.raise_for_status()
     return resp.json()
+
+
+def _looks_like_zoho_crm_record_id(s: str) -> bool:
+    """Zoho record ids are long digit strings; reject display names like 'Sabith Test'."""
+    t = (s or "").strip()
+    if len(t) < 10 or not t.isdigit():
+        return False
+    return True
+
+
+def search_crm_record_ids_by_field_equals(
+    module_api_name: str,
+    field_api_name: str,
+    value: str,
+) -> list[str]:
+    """
+    Zoho CRM `Search Records` API (v2): match one field with ``equals``.
+
+    See: https://www.zoho.com/crm/developer/docs/api/v2/search-records.html
+    """
+    mod = (module_api_name or "").strip()
+    field = (field_api_name or "").strip()
+    v = (value or "").strip()
+    if not mod or not field or not v:
+        return []
+    crit = f"({field}:equals:{v})"
+    path = f"/crm/v2/{mod}/search"
+    try:
+        data = _crm_v2_get_with_params(path, {"criteria": crit})
+    except Exception:
+        logger.exception(
+            "ZOHO_SEARCH_FAILED module=%s field=%s value_len=%s",
+            mod,
+            field,
+            len(v),
+        )
+        return []
+    rows = data.get("data")
+    if not isinstance(rows, list):
+        return []
+    out: list[str] = []
+    for row in rows:
+        if isinstance(row, dict):
+            rid = str(row.get("id") or "").strip()
+            if rid:
+                out.append(rid)
+    logger.info(
+        "ZOHO_SEARCH_OK module=%s field=%s value_preview=%r match_count=%s",
+        mod,
+        field,
+        v[:120],
+        len(out),
+    )
+    return out
 
 
 def extract_file_id_from_zoho_field(value: object) -> str | None:
@@ -361,7 +420,15 @@ def get_file_id_from_record_field(
 
 def extract_multiselect_lookup_ids(raw: object) -> list[str]:
     """
-    Parse Zoho multi-select lookup / lookup list values into CRM record id strings.
+    Parse Zoho **multi-select lookup** / **lookup** values into CRM record id strings.
+
+    Zoho Get Record typically returns:
+    - Multi-select lookup: ``[{"id": "...", "name": "..."}, ...]``
+    - Single lookup: ``{"id": "...", "name": "..."}``
+
+    Plain strings are **only** treated as ids when they look like Zoho record ids (long digits).
+    A human-readable string (e.g. ``'Sabith Test'``) returns ``[]`` — use a real lookup field or
+    enable name search via ``ZOHO_TRAINER_LOOKUP_RESOLVE_BY_NAME`` + ``ZOHO_TRAINER_SEARCH_FIELD_API_NAME``.
     """
     out: list[str] = []
     if raw is None:
@@ -375,11 +442,22 @@ def extract_multiselect_lookup_ids(raw: object) -> list[str]:
                 rid = str(item.get("id") or item.get("Id") or "").strip()
                 if rid:
                     out.append(rid)
-            elif isinstance(item, str) and item.strip():
+            elif isinstance(item, str) and item.strip() and _looks_like_zoho_crm_record_id(item):
                 out.append(item.strip())
         logger.info(
             "ZOHO_MS_LOOKUP_PARSE raw_type=list raw_preview=%s parsed_ids=%s count=%s",
             format_zoho_field_debug(raw),
+            out,
+            len(out),
+        )
+        return out
+    if isinstance(raw, str):
+        s = raw.strip()
+        if s and _looks_like_zoho_crm_record_id(s):
+            out = [s]
+        logger.info(
+            "ZOHO_MS_LOOKUP_PARSE raw_type=str value_preview=%r parsed_ids=%s count=%s",
+            s[:200] if s else s,
             out,
             len(out),
         )
