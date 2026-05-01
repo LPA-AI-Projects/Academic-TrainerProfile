@@ -43,6 +43,9 @@ app = FastAPI(title=settings.app_name)
 
 logger = get_logger(__name__)
 
+# Set True in startup after create_all + migrations; Railway /health stays up if DB is misconfigured.
+_db_initialized: bool = False
+
 _BACKEND_ROOT = Path(__file__).resolve().parents[1]  # .../trainer-profile/backend
 
 
@@ -246,6 +249,7 @@ def _public_base_url(request: Request) -> str:
 
 @app.on_event("startup")
 def startup() -> None:
+    global _db_initialized
     configured = str(getattr(settings, "log_level", "INFO")).upper()
     level = getattr(logging, configured, logging.INFO)
     logging.basicConfig(
@@ -263,13 +267,39 @@ def startup() -> None:
         bool((settings.api_secret_key or "").strip()),
     )
 
-    Base.metadata.create_all(bind=engine)
-    apply_light_migrations(engine)
+    _db_initialized = False
+    try:
+        Base.metadata.create_all(bind=engine)
+        apply_light_migrations(engine)
+        _db_initialized = True
+        logger.info("API_STARTUP_DB_OK database_url_host=%s", _database_url_host_for_log())
+    except Exception:
+        logger.exception(
+            "API_STARTUP_DB_FAILED — process still listens for /health; set Railway DATABASE_URL "
+            "to your Postgres service (default localhost only works in local compose). "
+            "host=%s",
+            _database_url_host_for_log(),
+        )
+
+
+def _database_url_host_for_log() -> str:
+    """Safe fragment for logs (no password)."""
+    try:
+        from urllib.parse import urlparse
+
+        u = urlparse(settings.database_url.replace("postgresql+psycopg2", "postgresql", 1))
+        return f"{u.hostname or '?'}:{u.port or '?'}"
+    except Exception:
+        return "?"
 
 
 @app.get("/health")
-def health() -> dict[str, str]:
-    return {"status": "ok", "env": settings.app_env}
+def health() -> dict[str, str | bool]:
+    return {
+        "status": "ok",
+        "env": settings.app_env,
+        "database_ready": _db_initialized,
+    }
 
 
 @app.get("/health/db")

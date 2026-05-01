@@ -1,14 +1,14 @@
-# Single service: Docker image runs Uvicorn only. Point the public domain at this service
-# (remove/disable any separate Caddy or static host on the same production URL).
+# Build with Docker (not Railpack "Staticfile" + Caddy). If builds still pick Railpack,
+# ensure this file lives at the Railway service root directory for the repo.
 #
-# If the Git repo root is above this folder, set Railway "Root Directory" to `trainer-profile`.
+# Required variable: DATABASE_URL → Railway Postgres (or external) reachable from this service.
 
 [build]
 builder = "DOCKERFILE"
 dockerfilePath = "backend/Dockerfile"
 
 [deploy]
-startCommand = "/bin/sh -c \"exec python -m uvicorn backend.app.main:app --host 0.0.0.0 --port ${PORT:-8080}\""
+# Use the image CMD (Uvicorn). Avoid a duplicate startCommand that can confuse PORT handling.
 healthcheckPath = "/health"
 healthcheckTimeout = 300
 restartPolicyType = "ON_FAILURE"
