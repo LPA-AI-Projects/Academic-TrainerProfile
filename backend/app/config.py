@@ -137,11 +137,11 @@ class Settings(BaseSettings):
     # Optional: require `X-API-Key` on API routes when set (matches common webhook / internal service pattern).
     api_secret_key: str | None = None
 
-    # Zoho CRM — OAuth + CRM API (see Zoho CRM API v2/v8 OAuth overview).
-    # Optional explicit bases (same idea as ZOHO_ACCOUNTS_BASE_URL / ZOHO_CRM_API_BASE in other services).
-    # If unset, URLs are derived from zoho_dc (com → accounts.zoho.com + www.zohoapis.com).
-    zoho_accounts_base_url: str | None = None
-    zoho_crm_api_base: str | None = None
+    # Zoho CRM — OAuth + CRM API (full base URLs in env).
+    # Defaults: US/global — https://accounts.zoho.com and https://www.zohoapis.com
+    # Other regions: set both to your DC hosts and matching ZOHO_DC (e.g. .in + ZOHO_DC=in).
+    zoho_accounts_base_url: str = Field(default="https://accounts.zoho.com")
+    zoho_crm_api_base: str = Field(default="https://www.zohoapis.com")
     zoho_dc: str = "com"
     zoho_client_id: str | None = None
     zoho_client_secret: str | None = None
@@ -153,13 +153,27 @@ class Settings(BaseSettings):
     def normalize_zoho_dc(cls, v: object) -> str:
         return normalize_zoho_dc_value(v)
 
-    @field_validator("zoho_accounts_base_url", "zoho_crm_api_base", mode="before")
+    @field_validator("zoho_accounts_base_url", mode="before")
     @classmethod
-    def strip_optional_zoho_urls(cls, v: object) -> str | None:
-        if v is None or not isinstance(v, str):
-            return None
-        t = v.strip().rstrip("/")
-        return t or None
+    def normalize_zoho_accounts_base_url(cls, v: object) -> str:
+        default = "https://accounts.zoho.com"
+        if v is None:
+            return default
+        if isinstance(v, str):
+            t = v.strip().rstrip("/")
+            return t if t else default
+        return default
+
+    @field_validator("zoho_crm_api_base", mode="before")
+    @classmethod
+    def normalize_zoho_crm_api_base(cls, v: object) -> str:
+        default = "https://www.zohoapis.com"
+        if v is None:
+            return default
+        if isinstance(v, str):
+            t = v.strip().rstrip("/")
+            return t if t else default
+        return default
 
     # When request has only `zoho_record_id`, fetch file-upload field(s) from this module (e.g. Trainers, Contacts).
     zoho_module_api_name: str | None = None
