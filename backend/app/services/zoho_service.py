@@ -10,7 +10,7 @@ import time
 import uuid
 from pathlib import Path
 
-from ..config import get_settings
+from ..config import get_settings, normalize_zoho_dc_value
 from ..utils.logger import get_logger
 
 logger = get_logger(__name__)
@@ -41,17 +41,17 @@ _TOKEN_REFRESH_SKEW_SEC = 120
 
 
 def _crm_api_host(dc: str) -> str:
-    dc = (dc or "com").strip().lower().lstrip(".")
-    if dc == "com":
+    suf = normalize_zoho_dc_value(dc)
+    if suf == "com":
         return "https://www.zohoapis.com"
-    return f"https://www.zohoapis.{dc}"
+    return f"https://www.zohoapis.{suf}"
 
 
 def _accounts_host(dc: str) -> str:
-    dc = (dc or "com").strip().lower().lstrip(".")
-    if dc == "com":
+    suf = normalize_zoho_dc_value(dc)
+    if suf == "com":
         return "https://accounts.zoho.com"
-    return f"https://accounts.zoho.{dc}"
+    return f"https://accounts.zoho.{suf}"
 
 
 def _invalidate_token_cache() -> None:

@@ -1,9 +1,63 @@
+import re
 from functools import lru_cache
 from pathlib import Path
 from urllib.parse import parse_qsl, urlencode, urlparse, urlunparse
 
 from pydantic import Field, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
+
+
+def normalize_zoho_dc_value(v: object) -> str:
+    """
+    Zoho multi-DC uses a short suffix (com, in, eu, com.au), not a full URL.
+
+    OAuth: https://accounts.zoho.{suffix}/oauth/v2/token
+    CRM API: https://www.zohoapis.{suffix}/crm/...
+
+    If someone pastes ``https://www.zohoapis.com`` (US/global API base per Zoho docs), we map it to ``com``.
+    Zoho uses separate CRM API and Accounts hosts per region; see Zoho CRM multi-DC docs.
+    """
+    default = "com"
+    if not isinstance(v, str):
+        return default
+    raw = v.strip()
+    if not raw:
+        return default
+    s = raw.lower()
+
+    if s in ("https", "http"):
+        return default
+
+    if "://" in s or "zohoapis" in s or "accounts.zoho" in s or s.startswith("www."):
+        url = s if "://" in s else f"https://{s}"
+        try:
+            p = urlparse(url)
+            host = (p.hostname or "").lower().strip()
+        except Exception:
+            host = ""
+        if not host:
+            return default
+
+        if host in ("www.zohoapis.com", "zohoapis.com"):
+            return default
+        if host.endswith("zohoapis.com"):
+            return default
+        if "zohoapis." in host:
+            return host.rsplit("zohoapis.", 1)[-1].split("/")[0]
+
+        if host == "accounts.zoho.com":
+            return default
+        if host.startswith("accounts.zoho."):
+            return host.split("accounts.zoho.", 1)[1].split("/")[0]
+
+    suffix = s.lstrip(".")
+    if (
+        re.fullmatch(r"[a-z][a-z0-9.]{0,11}", suffix)
+        and suffix not in ("https", "http")
+        and ".." not in suffix
+    ):
+        return suffix
+    return default
 
 
 class Settings(BaseSettings):
@@ -81,6 +135,12 @@ class Settings(BaseSettings):
     zoho_client_secret: str | None = None
     zoho_refresh_token: str | None = None
     zoho_access_token: str | None = None
+
+    @field_validator("zoho_dc", mode="before")
+    @classmethod
+    def normalize_zoho_dc(cls, v: object) -> str:
+        return normalize_zoho_dc_value(v)
+
     # When request has only `zoho_record_id`, fetch file-upload field(s) from this module (e.g. Trainers, Contacts).
     zoho_module_api_name: str | None = None
     # CRM field API names for File Upload fields (configure to match your Zoho layout).
