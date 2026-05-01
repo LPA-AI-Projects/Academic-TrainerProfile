@@ -1,10 +1,22 @@
-import re
 from functools import lru_cache
 from pathlib import Path
 from urllib.parse import parse_qsl, urlencode, urlparse, urlunparse
 
 from pydantic import Field, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
+
+
+def _is_plain_zoho_dc_suffix(s: str) -> bool:
+    """Allow com, in, eu, com.au — no ``re`` module needed."""
+    if not s or len(s) > 12 or ".." in s or s in ("https", "http"):
+        return False
+    if not s[0].isalpha():
+        return False
+    for c in s:
+        if c.islower() or c.isdigit() or c == ".":
+            continue
+        return False
+    return True
 
 
 def normalize_zoho_dc_value(v: object) -> str:
@@ -51,11 +63,7 @@ def normalize_zoho_dc_value(v: object) -> str:
             return host.split("accounts.zoho.", 1)[1].split("/")[0]
 
     suffix = s.lstrip(".")
-    if (
-        re.fullmatch(r"[a-z][a-z0-9.]{0,11}", suffix)
-        and suffix not in ("https", "http")
-        and ".." not in suffix
-    ):
+    if _is_plain_zoho_dc_suffix(suffix):
         return suffix
     return default
 
@@ -129,7 +137,11 @@ class Settings(BaseSettings):
     # Optional: require `X-API-Key` on API routes when set (matches common webhook / internal service pattern).
     api_secret_key: str | None = None
 
-    # Zoho CRM file download (webhook sends `cv` = attachment / file id, not a local path).
+    # Zoho CRM — OAuth + CRM API (see Zoho CRM API v2/v8 OAuth overview).
+    # Optional explicit bases (same idea as ZOHO_ACCOUNTS_BASE_URL / ZOHO_CRM_API_BASE in other services).
+    # If unset, URLs are derived from zoho_dc (com → accounts.zoho.com + www.zohoapis.com).
+    zoho_accounts_base_url: str | None = None
+    zoho_crm_api_base: str | None = None
     zoho_dc: str = "com"
     zoho_client_id: str | None = None
     zoho_client_secret: str | None = None
@@ -140,6 +152,14 @@ class Settings(BaseSettings):
     @classmethod
     def normalize_zoho_dc(cls, v: object) -> str:
         return normalize_zoho_dc_value(v)
+
+    @field_validator("zoho_accounts_base_url", "zoho_crm_api_base", mode="before")
+    @classmethod
+    def strip_optional_zoho_urls(cls, v: object) -> str | None:
+        if v is None or not isinstance(v, str):
+            return None
+        t = v.strip().rstrip("/")
+        return t or None
 
     # When request has only `zoho_record_id`, fetch file-upload field(s) from this module (e.g. Trainers, Contacts).
     zoho_module_api_name: str | None = None

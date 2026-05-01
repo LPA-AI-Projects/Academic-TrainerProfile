@@ -61,15 +61,31 @@ def _invalidate_token_cache() -> None:
     # Keep api_domain: Zoho returns it with refresh and it stays valid for the org.
 
 
+def _resolved_accounts_base() -> str:
+    """OAuth token host: explicit ``zoho_accounts_base_url`` or derived from ``zoho_dc``."""
+    s = get_settings()
+    u = (s.zoho_accounts_base_url or "").strip().rstrip("/")
+    if u:
+        return u
+    return _accounts_host(s.zoho_dc)
+
+
 def _crm_api_base() -> str:
     """
-    Base URL for CRM APIs. Prefer api_domain from the last refresh-token response
-    (see Zoho Accounts refresh docs); fall back to ZOHO_DC-based host.
+    Base URL for CRM APIs.
+
+    1. ``api_domain`` from the last refresh-token response (Zoho OAuth).
+    2. Explicit ``zoho_crm_api_base`` in settings (same role as ZOHO_CRM_API_BASE elsewhere).
+    3. Derived from ``zoho_dc`` (e.g. www.zohoapis.com for com).
     """
     domain = str(_TOKEN_CACHE.get("api_domain") or "").strip().rstrip("/")
     if domain:
         return domain
-    return _crm_api_host(get_settings().zoho_dc)
+    s = get_settings()
+    explicit = (s.zoho_crm_api_base or "").strip().rstrip("/")
+    if explicit:
+        return explicit
+    return _crm_api_host(s.zoho_dc)
 
 
 def _can_use_refresh_token() -> bool:
@@ -106,7 +122,7 @@ def _refresh_access_token_with_lock(*, force: bool) -> str:
             if cached and now < exp - _TOKEN_REFRESH_SKEW_SEC:
                 return cached
 
-        url = f"{_accounts_host(settings.zoho_dc)}/oauth/v2/token"
+        url = f"{_resolved_accounts_base()}/oauth/v2/token"
         resp = requests.post(
             url,
             data={
