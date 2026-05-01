@@ -347,6 +347,12 @@ def generate_from_parent_with_trainers(
 
     lookup_raw = parent_record.get(lookup_f)
     logger.info(
+        "TRAINERS_RAW_FULL field=%s value=%s type=%s",
+        lookup_f,
+        repr(lookup_raw),
+        type(lookup_raw).__name__,
+    )
+    logger.info(
         "GEN_PARENT_TRAINERS_LOOKUP_FIELD field=%s raw_type=%s raw_preview=%s",
         lookup_f,
         type(lookup_raw).__name__,
