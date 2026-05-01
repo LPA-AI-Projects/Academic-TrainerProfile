@@ -1,7 +1,8 @@
 from functools import lru_cache
 from pathlib import Path
+from urllib.parse import parse_qsl, urlencode, urlparse, urlunparse
 
-from pydantic import Field
+from pydantic import Field, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -14,6 +15,41 @@ class Settings(BaseSettings):
     database_url: str = Field(
         default="postgresql+psycopg2://postgres:postgres@localhost:5432/trainer_profiles"
     )
+
+    @field_validator("database_url", mode="before")
+    @classmethod
+    def normalize_database_url(cls, v: object) -> object:
+        """
+        Accept URLs from Railway / Supabase / .env that omit the SQLAlchemy driver.
+
+        - postgres:// → postgresql+psycopg2://
+        - postgresql:// → postgresql+psycopg2://
+        - postgresql+asyncpg:// → postgresql+psycopg2:// (this app uses sync psycopg2)
+        Supabase hosts get sslmode=require when not already set.
+        """
+        if not isinstance(v, str):
+            return v
+        s = v.strip()
+        if not s:
+            return s
+        if s.startswith("postgresql+psycopg2://"):
+            out = s
+        elif s.startswith("postgres://"):
+            out = "postgresql+psycopg2://" + s[len("postgres://") :]
+        elif s.startswith("postgresql+asyncpg://"):
+            out = "postgresql+psycopg2://" + s[len("postgresql+asyncpg://") :]
+        elif s.startswith("postgresql://"):
+            out = "postgresql+psycopg2://" + s[len("postgresql://") :]
+        else:
+            out = s
+        if "supabase.co" in out.lower():
+            parsed = urlparse(out)
+            q = dict(parse_qsl(parsed.query, keep_blank_values=True))
+            if "sslmode" not in {k.lower() for k in q}:
+                q["sslmode"] = "require"
+            new_query = urlencode(q)
+            out = urlunparse(parsed._replace(query=new_query))
+        return out
 
     default_provider: str = "openai"
     default_model: str = "gpt-4.1-mini"
