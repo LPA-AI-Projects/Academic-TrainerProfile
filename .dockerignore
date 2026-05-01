@@ -1,0 +1,15 @@
+# Build context is this directory (trainer-profile). Keeps image small and avoids leaking local env.
+.git
+.gitignore
+**/__pycache__
+**/*.py[cod]
+**/.pytest_cache
+**/.mypy_cache
+**/.ruff_cache
+.venv
+**/.venv
+**/node_modules
+backend/.env
+backend/.env.*
+.cursor
+terminals

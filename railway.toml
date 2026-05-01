@@ -1,14 +1,14 @@
-# Academic Trainer Profile — public HTTP must hit FastAPI (Uvicorn), not a Caddy-only static host.
-# Symptoms of a wrong setup: Caddy "fileserver.(*FileServer).notFound" and 404 on POST /api/v1/...
+# Single service: Docker image runs Uvicorn only. Point the public domain at this service
+# (remove/disable any separate Caddy or static host on the same production URL).
 #
-# Set the Railway service "Root Directory" to this folder (trainer-profile) if the Git repo root is above it.
+# If the Git repo root is above this folder, set Railway "Root Directory" to `trainer-profile`.
 
 [build]
 builder = "DOCKERFILE"
 dockerfilePath = "backend/Dockerfile"
 
 [deploy]
-# Overrides any mistaken dashboard "Start Command" (e.g. caddy run). Matches backend/Dockerfile intent.
-startCommand = "/bin/sh -c \"exec uvicorn backend.app.main:app --host 0.0.0.0 --port ${PORT:-8080}\""
+startCommand = "/bin/sh -c \"exec python -m uvicorn backend.app.main:app --host 0.0.0.0 --port ${PORT:-8080}\""
 healthcheckPath = "/health"
+healthcheckTimeout = 300
 restartPolicyType = "ON_FAILURE"
