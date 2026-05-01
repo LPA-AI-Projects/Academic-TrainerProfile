@@ -1,5 +1,7 @@
+from __future__ import annotations
+
 from datetime import datetime
-from typing import Literal
+from typing import Literal, Self
 
 from pydantic import BaseModel, Field, field_validator, model_validator
 
@@ -21,7 +23,7 @@ class GenerateProfileRequest(BaseModel):
         return [v for v in value if v and v.strip()]
 
     @model_validator(mode="after")
-    def require_cv_source(self) -> GenerateProfileRequest:
+    def require_cv_source(self) -> Self:
         has_zoho = bool(self.cv and self.cv.strip())
         has_local = bool(self.cv_path and self.cv_path.strip())
         if has_zoho and has_local:
@@ -102,7 +104,7 @@ class RefineProfileRequest(BaseModel):
         return str(value).strip() or None
 
     @model_validator(mode="after")
-    def require_lookup_key(self) -> RefineProfileRequest:
+    def require_lookup_key(self) -> Self:
         z = (self.zoho_record_id or "").strip()
         u = (self.unique_code or "").strip()
         if not z and not u:
