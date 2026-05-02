@@ -169,13 +169,18 @@ async def _maybe_zoho_attach_trainer_pdf_link(
     job: TrainerProfileJob, db: Session, *, public_base_url: str
 ) -> None:
     """
-    If ``ZOHO_ATTACH_TRAINER_PDF_LINK=true`` and OAuth is configured, POST the public ``/pdfs/{job_id}.pdf``
-    URL to Zoho CRM v8 Attachments. Target record: parent (webhook) vs trainer — see
-    ``ZOHO_ATTACH_PDF_TO_PARENT_RECORD`` and ``_resolve_zoho_pdf_attachment_module_and_record``.
+    If ``ZOHO_ATTACH_TRAINER_PDF_LINK=true`` and OAuth is configured, POST an ``attachmentUrl`` to Zoho CRM v8
+    Attachments. Prefers ``google_drive_pdf_url`` when ``ZOHO_ATTACH_TRAINER_PDF_PREFER_GOOGLE_DRIVE_URL=true``
+    (after Drive upload). Otherwise uses public ``/pdfs/{job_id}.pdf``.
+
+    Target record: parent (webhook) vs trainer — see ``ZOHO_ATTACH_PDF_TO_PARENT_RECORD`` and
+    ``_resolve_zoho_pdf_attachment_module_and_record``. Set ``ZOHO_PARENT_MODULE_API_NAME`` to your parent API
+    name (e.g. ``Closure_Activities`` or ``Closure_Activity``).
     """
     settings = get_settings()
     if not settings.zoho_attach_trainer_pdf_link:
         return
+    db.refresh(job)
     oauth_ok = bool(
         (settings.zoho_refresh_token or "").strip()
         and (settings.zoho_client_id or "").strip()
@@ -187,12 +192,23 @@ async def _maybe_zoho_attach_trainer_pdf_link(
             "or a static ZOHO_ACCESS_TOKEN)"
         )
         return
-    path = job_pdf_abs_path(job.id)
-    if not path.is_file() or path.stat().st_size <= 0:
-        logger.warning("ZOHO_ATTACH_PDF_SKIP missing_pdf job_id=%s", job.id)
-        return
+
+    pi_live = job.parsed_inputs if isinstance(job.parsed_inputs, dict) else {}
+    drive_url = str(pi_live.get("google_drive_pdf_url") or "").strip()
+
     base = (public_base_url or settings.public_base_url or "http://127.0.0.1:8080").rstrip("/")
-    public_pdf_url = f"{base}/pdfs/{job.id}.pdf"
+    pdfs_url = f"{base}/pdfs/{job.id}.pdf"
+
+    use_drive = bool(settings.zoho_attach_trainer_pdf_prefer_google_drive_url and drive_url)
+    if use_drive:
+        attachment_url = drive_url
+        logger.info("ZOHO_ATTACH_PDF using google_drive_pdf_url job_id=%s", job.id)
+    else:
+        path = job_pdf_abs_path(job.id)
+        if not path.is_file() or path.stat().st_size <= 0:
+            logger.warning("ZOHO_ATTACH_PDF_SKIP missing_pdf job_id=%s", job.id)
+            return
+        attachment_url = pdfs_url
     resolved = _resolve_zoho_pdf_attachment_module_and_record(job)
     if not resolved:
         logger.warning("ZOHO_ATTACH_PDF_SKIP could_not_resolve_module_record job_id=%s", job.id)
@@ -207,11 +223,11 @@ async def _maybe_zoho_attach_trainer_pdf_link(
             attach_crm_v8_attachment_link,
             module_api_name=mod,
             crm_record_id=crm_id,
-            public_url=public_pdf_url,
+            public_url=attachment_url,
             title=title,
         )
         logger.info(
-            "ZOHO_ATTACH_PDF_OK job_id=%s module=%s crm_record_id=%s parent_flow=%s",
+            "ZOHO_ATTACH_PDF_OK job_id=%s module=%s crm_record_id=%s parent_flow=%s source=%s",
             job.id,
             mod,
             crm_id,
@@ -219,13 +235,15 @@ async def _maybe_zoho_attach_trainer_pdf_link(
                 isinstance(job.parsed_inputs, dict)
                 and str((job.parsed_inputs or {}).get("parent_record_id") or "").strip()
             ),
+            "google_drive" if use_drive else "pdfs",
         )
     except Exception as exc:
         err = str(exc)
         logger.exception("ZOHO_ATTACH_PDF_FAILED job_id=%s", job.id)
 
     pi = dict(job.parsed_inputs) if isinstance(job.parsed_inputs, dict) else {}
-    pi["zoho_trainer_pdf_attachment_url"] = public_pdf_url
+    pi["zoho_trainer_pdf_attachment_url"] = attachment_url
+    pi["zoho_trainer_pdf_attachment_source"] = "google_drive" if use_drive else "pdfs"
     if err:
         pi["zoho_trainer_pdf_attachment_error"] = err
     else:

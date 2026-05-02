@@ -218,6 +218,9 @@ class Settings(BaseSettings):
     zoho_attach_pdf_to_parent_record: bool = True
     # Module API name for the attachment when not using parent (default: ZOHO_TRAINER_MODULE_API_NAME).
     zoho_trainer_pdf_attach_module_api_name: str | None = None
+    # When Google Drive upload stored a view link on the job, use it for Zoho attachmentUrl (parent/trainer row).
+    # If false or no Drive link, uses public HTTPS URL to /pdfs/{job_id}.pdf.
+    zoho_attach_trainer_pdf_prefer_google_drive_url: bool = True
 
     # Google Drive OAuth (for uploading generated trainer profile PDFs).
     google_client_id: str | None = None
