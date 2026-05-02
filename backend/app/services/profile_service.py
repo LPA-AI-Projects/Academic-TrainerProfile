@@ -179,6 +179,10 @@ async def _maybe_zoho_attach_trainer_pdf_link(
     """
     settings = get_settings()
     if not settings.zoho_attach_trainer_pdf_link:
+        logger.info(
+            "ZOHO_ATTACH_PDF_SKIP feature_off=1 job_id=%s (set ZOHO_ATTACH_TRAINER_PDF_LINK=true to POST PDF to CRM)",
+            job.id,
+        )
         return
     db.refresh(job)
     oauth_ok = bool(

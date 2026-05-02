@@ -287,6 +287,10 @@ def startup() -> None:
         settings.app_env,
         bool((settings.api_secret_key or "").strip()),
     )
+    logger.info(
+        "API_STARTUP zoho_attach_trainer_pdf_link=%s",
+        bool(getattr(settings, "zoho_attach_trainer_pdf_link", False)),
+    )
 
     _db_initialized = False
     try:

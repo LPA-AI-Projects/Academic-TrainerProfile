@@ -212,7 +212,7 @@ class Settings(BaseSettings):
 
     # After PDF is saved: attach its public URL to a CRM record via v8 Attachments (link upload).
     # Requires ZOHO_CLIENT_ID, ZOHO_CLIENT_SECRET, ZOHO_REFRESH_TOKEN (same as CV download).
-    zoho_attach_trainer_pdf_link: bool = False
+    zoho_attach_trainer_pdf_link: bool = True
     # When True (default) and the job came from the parent-record flow, attach on the parent module row
     # (same id as the webhook zoho_record_id). When False, attach on the Trainers row (trainer_record_id).
     zoho_attach_pdf_to_parent_record: bool = True
