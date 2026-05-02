@@ -51,17 +51,48 @@
     }
 
     /* ── Shared elements ── */
+    /* Top-right wordmark — matches css/cv.css sample (icon + “Learners Point”) */
+    .lp-brand {
+      position: absolute;
+      right: 24px;
+      top: 24px;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      z-index: 3;
+    }
+    .lp-brand img {
+      width: 28px;
+      height: 28px;
+      flex-shrink: 0;
+      display: block;
+    }
+    .lp-brand .lp-brand-text {
+      font-family: "Helvetica Neue", Helvetica, Arial, sans-serif;
+      font-size: 15px;
+      font-weight: 600;
+      color: #222;
+      letter-spacing: 0.02em;
+      line-height: 1;
+      white-space: nowrap;
+    }
+
+    /* CSAT pill — anchor to right edge (595px canvas); old left+width clipped past page */
     .pill {
       position: absolute;
-      left: 293px;
+      right: 0;
+      left: auto;
       top: 84px;
-      width: 343px;
+      width: auto;
+      max-width: min(360px, calc(100% - 40px));
       background: #2e9d91;
       color: #fff;
-      padding: 11.8px 20px;
+      padding: 11.8px 22px 11.8px 20px;
       border-bottom-left-radius: 16px;
       font-size: 14px;
       font-weight: 700;
+      white-space: nowrap;
+      z-index: 2;
     }
 
     .small-dot {
@@ -154,10 +185,9 @@
     <div class="canvas">
     <img class="small-dot" src="./images/2.svg" alt="" />
 
-    <div style="position:absolute;right:21px;top:24px;display:flex;align-items:center;gap:7px;z-index:2;">
-      <img src="./images/1.svg" alt=""
-           style="width:28px;height:28px;flex-shrink:0;display:block;" />
-      <span style="font-family:'Helvetica Neue',Helvetica,Arial,sans-serif;font-size:15px;font-weight:500;color:#333;white-space:nowrap;letter-spacing:0.2px;line-height:1;">Learners Point</span>
+    <div class="lp-brand" aria-label="Learners Point">
+      <img src="./images/1.svg" alt="" />
+      <span class="lp-brand-text">Learners Point</span>
     </div>
 
     <div class="pill">

@@ -40,28 +40,28 @@
   z-index: 2;
 }
 
-/* Learners Point logo — top-right */
+/* Learners Point logo — top-right (icon + wordmark; matches index.html / cv.css) */
 .cv-p1-logo {
   position: absolute;
-  left: 408px;
+  right: 24px;
   top: 24px;
-  width: 166px;
-  height: 22px;
   display: flex;
   align-items: center;
-  gap: 5px;
-  z-index: 2;
+  gap: 8px;
+  z-index: 3;
 }
 .cv-p1-logo-icon {
-  width: 39px;
-  height: 22px;
-  object-fit: contain;
+  width: 28px;
+  height: 28px;
+  flex-shrink: 0;
+  display: block;
 }
 .cv-p1-logo-text {
-  font-size: 17.9px;
-  color: #333;
+  font-size: 15px;
+  color: #222;
   white-space: nowrap;
-  font-weight: 400;
+  font-weight: 600;
+  letter-spacing: 0.02em;
 }
 
 /* CSAT / Batches badge — top-right teal banner */

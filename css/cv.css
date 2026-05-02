@@ -55,8 +55,8 @@ html {
   top: 24px;
   display: flex;
   align-items: center;
-  gap: 7px;
-  z-index: 2;
+  gap: 8px;
+  z-index: 3;
 }
 .cv-p1-logo-icon {
   width: 28px;
@@ -64,10 +64,10 @@ html {
 }
 .cv-p1-logo-text {
   font-size: 15px;
-  color: #333;
+  color: #222;
   white-space: nowrap;
-  font-weight: 500;
-  letter-spacing: 0.2px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
 }
 
 /* CSAT / Batches badge — top-right teal banner */
