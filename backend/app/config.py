@@ -210,6 +210,12 @@ class Settings(BaseSettings):
     # Parent module field used as Drive folder name (ai_automation/trainer_profile/{course}/).
     zoho_parent_course_name_field_api_name: str = Field(default="Product_Course_Name1")
 
+    # After PDF is saved: attach its public URL to a CRM record via v8 Attachments (link upload).
+    # Requires ZOHO_CLIENT_ID, ZOHO_CLIENT_SECRET, ZOHO_REFRESH_TOKEN (same as CV download).
+    zoho_attach_trainer_pdf_link: bool = False
+    # Module API name for the attachment (default: same as ZOHO_TRAINER_MODULE_API_NAME, e.g. Trainers).
+    zoho_trainer_pdf_attach_module_api_name: str | None = None
+
     # Google Drive OAuth (for uploading generated trainer profile PDFs).
     google_client_id: str | None = None
     google_client_secret: str | None = None

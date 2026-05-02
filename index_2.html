@@ -147,8 +147,6 @@
   </style>
 </head>
 <body>
-  <!-- Set data-ready=1 only after job JSON is applied (Playwright PDF waits on this; avoids racing static template). -->
-  <span id="cv-profile-loaded" data-ready="0" aria-hidden="true" style="position:absolute;width:0;height:0;overflow:hidden"></span>
   <!-- ═══════ PAGE 1 ═══════ -->
   <section class="page" id="page1">
     <div class="canvas">
@@ -341,7 +339,7 @@
       const applyProfile = (profile) => {
         const p = profile || {};
 
-        setText('cv-p1-name', clean(p.trainer_display_name) || 'This Trainer');
+        setText('cv-p1-name', 'This Trainer');
         setText('cv-p1-tagline', uniq(p.professional_titles).join(' | '));
 
         setText('cv-csat-score-val',
@@ -386,8 +384,6 @@
           const data = await res.json();
           if (!data?.generated_profile) throw new Error('generated_profile missing');
           applyProfile(data.generated_profile);
-          const ready = document.getElementById('cv-profile-loaded');
-          if (ready) ready.setAttribute('data-ready', '1');
           console.info('[trainer-profile] loaded');
         } catch (err) {
           console.error('[trainer-profile] load failed', err);
@@ -400,11 +396,7 @@
         }
       };
 
-      window.__applyTrainerProfile = applyProfile;
-
       document.addEventListener('DOMContentLoaded', () => {
-        // Headless PDF: Playwright fetches job JSON with X-API-Key and calls __applyTrainerProfile (no in-page fetch/CORS).
-        if (String(qp('pdf_server_apply') || '').trim() === '1') return;
         loadJob().then(autoprint);
       });
     })();

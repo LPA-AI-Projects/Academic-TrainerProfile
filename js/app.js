@@ -308,8 +308,9 @@ function applyGeneratedProfile(profile) {
     : [];
   const profileText = safeProfile.profile || '';
 
+  const displayName = String(safeProfile.trainer_display_name || '').trim();
   const guessedName = guessTrainerNameFromProfileText(profileText);
-  setInputValue('f-name', guessedName || 'This Trainer');
+  setInputValue('f-name', displayName || guessedName || 'This Trainer');
 
   const csatVal = Number(safeProfile.csat_score);
   if (Number.isFinite(csatVal)) {

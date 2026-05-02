@@ -2,6 +2,7 @@ import asyncio
 import random
 import re
 import time
+from datetime import datetime
 from pathlib import Path
 
 from sqlalchemy.orm import Session
@@ -16,6 +17,7 @@ from .job_pdf import ensure_job_pdf_on_disk, job_pdf_abs_path
 from .llm_client import generate_profile_json
 from .prompt_builder import build_prompt
 from .zoho_service import (
+    attach_crm_v8_attachment_link,
     download_crm_file_to_path,
     extract_file_id_from_zoho_field,
     extract_multiselect_lookup_ids,
@@ -121,6 +123,92 @@ async def _maybe_google_drive_upload_after_pdf(job: TrainerProfileJob, db: Sessi
 async def maybe_google_drive_upload_after_pdf(job: TrainerProfileJob, db: Session) -> None:
     """Public hook for routes that save a PDF outside `_complete_job_after_prompt` (e.g. refine)."""
     await _maybe_google_drive_upload_after_pdf(job, db)
+
+
+def _crm_record_id_for_pdf_attachment(job: TrainerProfileJob) -> str:
+    """Parent multi-trainer jobs store the trainer row id in parsed_inputs."""
+    pi = job.parsed_inputs if isinstance(job.parsed_inputs, dict) else {}
+    tid = pi.get("trainer_record_id")
+    if tid is not None and str(tid).strip():
+        return str(tid).strip()
+    return (job.zoho_record_id or "").strip()
+
+
+def _attach_module_api_name() -> str:
+    s = get_settings()
+    v = (s.zoho_trainer_pdf_attach_module_api_name or "").strip()
+    if v:
+        return v
+    return (s.zoho_trainer_module_api_name or "Trainers").strip()
+
+
+async def _maybe_zoho_attach_trainer_pdf_link(
+    job: TrainerProfileJob, db: Session, *, public_base_url: str
+) -> None:
+    """
+    If ``ZOHO_ATTACH_TRAINER_PDF_LINK=true`` and OAuth is configured, POST the public ``/pdfs/{job_id}.pdf``
+    URL to Zoho CRM v8 Attachments on the trainer (or legacy) record.
+    """
+    settings = get_settings()
+    if not settings.zoho_attach_trainer_pdf_link:
+        return
+    oauth_ok = bool(
+        (settings.zoho_refresh_token or "").strip()
+        and (settings.zoho_client_id or "").strip()
+        and (settings.zoho_client_secret or "").strip()
+    ) or bool((settings.zoho_access_token or "").strip() and not (settings.zoho_refresh_token or "").strip())
+    if not oauth_ok:
+        logger.info(
+            "ZOHO_ATTACH_PDF_SKIP oauth_incomplete (set ZOHO_CLIENT_ID, ZOHO_CLIENT_SECRET, ZOHO_REFRESH_TOKEN "
+            "or a static ZOHO_ACCESS_TOKEN)"
+        )
+        return
+    path = job_pdf_abs_path(job.id)
+    if not path.is_file() or path.stat().st_size <= 0:
+        logger.warning("ZOHO_ATTACH_PDF_SKIP missing_pdf job_id=%s", job.id)
+        return
+    base = (public_base_url or settings.public_base_url or "http://127.0.0.1:8080").rstrip("/")
+    public_pdf_url = f"{base}/pdfs/{job.id}.pdf"
+    crm_id = _crm_record_id_for_pdf_attachment(job)
+    if not crm_id:
+        logger.warning("ZOHO_ATTACH_PDF_SKIP no_crm_record_id job_id=%s", job.id)
+        return
+    mod = _attach_module_api_name()
+    unique = _job_trainer_unique_for_drive(job)
+    title = f"Trainer_Profile_{unique}"[:255]
+
+    err: str | None = None
+    try:
+        await asyncio.to_thread(
+            attach_crm_v8_attachment_link,
+            module_api_name=mod,
+            crm_record_id=crm_id,
+            public_url=public_pdf_url,
+            title=title,
+        )
+        logger.info("ZOHO_ATTACH_PDF_OK job_id=%s module=%s crm_record_id=%s", job.id, mod, crm_id)
+    except Exception as exc:
+        err = str(exc)
+        logger.exception("ZOHO_ATTACH_PDF_FAILED job_id=%s", job.id)
+
+    pi = dict(job.parsed_inputs) if isinstance(job.parsed_inputs, dict) else {}
+    pi["zoho_trainer_pdf_attachment_url"] = public_pdf_url
+    if err:
+        pi["zoho_trainer_pdf_attachment_error"] = err
+    else:
+        pi.pop("zoho_trainer_pdf_attachment_error", None)
+        pi["zoho_trainer_pdf_attachment_at"] = datetime.utcnow().isoformat() + "Z"
+    job.parsed_inputs = pi
+    db.add(job)
+    db.commit()
+    db.refresh(job)
+
+
+async def maybe_zoho_attach_trainer_pdf_link(
+    job: TrainerProfileJob, db: Session, *, public_base_url: str
+) -> None:
+    """Public hook for routes that save a PDF outside `_complete_job_after_prompt` (e.g. refine)."""
+    await _maybe_zoho_attach_trainer_pdf_link(job, db, public_base_url=public_base_url)
 
 
 def _temp_cv_dir() -> Path:
@@ -326,6 +414,7 @@ async def _complete_job_after_prompt(
             model_name=payload.model_name,
         )
         gen = normalize_profile_payload(generated_json)
+        # Heading on the CV: Zoho Trainer_Unique_code when provided (parent multi-trainer flow).
         if trainer_display_name and str(trainer_display_name).strip():
             gen["trainer_display_name"] = str(trainer_display_name).strip()[:40]
         job.generated_profile = gen
@@ -362,6 +451,7 @@ async def _complete_job_after_prompt(
                 str(pdf_path),
             )
             await _maybe_google_drive_upload_after_pdf(job, db)
+            await _maybe_zoho_attach_trainer_pdf_link(job, db, public_base_url=public_base)
         except Exception as exc:
             job.pdf_generation_error = str(exc)
             db.add(job)

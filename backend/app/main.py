@@ -34,7 +34,11 @@ from .schemas import (
 )
 from .services.google_drive_service import GoogleDriveUploadError, upload_trainer_profile_pdf
 from .services.job_pdf import ensure_job_pdf_on_disk
-from .services.profile_service import generate_and_store_profile, maybe_google_drive_upload_after_pdf
+from .services.profile_service import (
+    generate_and_store_profile,
+    maybe_google_drive_upload_after_pdf,
+    maybe_zoho_attach_trainer_pdf_link,
+)
 from .services.llm_client import refine_profile_text
 
 settings = get_settings()
@@ -506,8 +510,10 @@ async def refine_profile(payload: RefineProfileRequest, request: Request, db: Se
 
     # Rebuild PDF so exported file reflects refined profile text.
     try:
-        await ensure_job_pdf_on_disk(db=db, job=job, public_base_url=_public_base_url(request))
+        pub = _public_base_url(request)
+        await ensure_job_pdf_on_disk(db=db, job=job, public_base_url=pub)
         await maybe_google_drive_upload_after_pdf(job, db)
+        await maybe_zoho_attach_trainer_pdf_link(job, db, public_base_url=pub)
     except Exception as exc:
         job.pdf_generation_error = str(exc)
         db.add(job)

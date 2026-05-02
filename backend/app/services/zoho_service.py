@@ -536,3 +536,70 @@ def get_scalar_field_str(record: dict, field_api_name: str) -> str | None:
         result or "(empty)",
     )
     return result
+
+
+def attach_crm_v8_attachment_link(
+    *,
+    module_api_name: str,
+    crm_record_id: str,
+    public_url: str,
+    title: str,
+) -> dict:
+    """
+    POST ``/crm/v8/{module}/{record_id}/Attachments`` with multipart ``attachmentUrl`` + ``title``.
+
+    Zoho fetches the URL server-side and stores a linked attachment on the record.
+    See: https://www.zoho.com/crm/developer/docs/api/v8/upload-attachment.html
+    """
+    try:
+        import requests
+    except ModuleNotFoundError as exc:
+        raise RuntimeError(
+            "Missing dependency 'requests'. Install backend requirements first."
+        ) from exc
+
+    from urllib.parse import quote
+
+    mod = (module_api_name or "").strip().strip("/")
+    rid = (crm_record_id or "").strip()
+    url_in = (public_url or "").strip()
+    if not mod or not rid or not url_in:
+        raise ValueError("module_api_name, crm_record_id, and public_url are required")
+
+    token = _get_access_token()
+    base = _crm_api_base()
+    path = f"{base}/crm/v8/{quote(mod, safe='')}/{quote(rid, safe='')}/Attachments"
+    headers = {"Authorization": f"Zoho-oauthtoken {token}"}
+    files = {
+        "attachmentUrl": (None, url_in),
+        "title": (None, (title or "Trainer profile")[:255]),
+    }
+    logger.info(
+        "ZOHO_CRM_ATTACH_LINK_START module=%s record_id=%s title_len=%s url_len=%s",
+        mod,
+        rid,
+        len(title or ""),
+        len(url_in),
+    )
+    resp = requests.post(path, headers=headers, files=files, timeout=120)
+    if resp.status_code == 401 and _can_use_refresh_token():
+        logger.warning("Zoho CRM attach got 401; refreshing token once record_id=%s", rid)
+        _invalidate_token_cache()
+        token = _get_access_token(force_refresh=True)
+        headers = {"Authorization": f"Zoho-oauthtoken {token}"}
+        resp = requests.post(path, headers=headers, files=files, timeout=120)
+    if not resp.ok:
+        logger.error(
+            "ZOHO_CRM_ATTACH_LINK_FAILED module=%s record_id=%s status=%s body=%s",
+            mod,
+            rid,
+            resp.status_code,
+            (resp.text or "")[:2000],
+        )
+    resp.raise_for_status()
+    try:
+        out = resp.json() if resp.content else {}
+    except Exception:
+        out = {"raw": (resp.text or "")[:500]}
+    logger.info("ZOHO_CRM_ATTACH_LINK_OK module=%s record_id=%s", mod, rid)
+    return out if isinstance(out, dict) else {"data": out}
