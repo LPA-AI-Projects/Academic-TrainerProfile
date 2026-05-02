@@ -3,9 +3,30 @@ from __future__ import annotations
 import time
 from urllib.parse import quote
 
+from ..config import get_settings
 from ..utils.logger import get_logger
 
 logger = get_logger(__name__)
+
+
+def _append_api_key_query(url: str, secret: str) -> str:
+    """So headless Chromium can call protected GET /api/v1/profiles/{id} (see index.html ``api_key`` param)."""
+    if not secret:
+        return url
+    sep = "&" if "?" in url else "?"
+    return f"{url}{sep}api_key={quote(secret, safe='')}"
+
+
+def _redact_api_key_from_url_for_log(url: str) -> str:
+    marker = "api_key="
+    i = url.find(marker)
+    if i == -1:
+        return url
+    value_start = i + len(marker)
+    j = url.find("&", value_start)
+    if j == -1:
+        return url[:i] + "api_key=(redacted)"
+    return url[:i] + "api_key=(redacted)" + url[j:]
 
 
 async def render_trainer_profile_pdf(*, public_base_url: str, job_id: str) -> bytes:
@@ -26,8 +47,15 @@ async def render_trainer_profile_pdf(*, public_base_url: str, job_id: str) -> by
 
     base = public_base_url.rstrip("/")
     api_base = quote(base, safe=":/?&=")
+    settings = get_settings()
+    secret = (settings.api_secret_key or "").strip()
     url = f"{base}/trainer-profile/index.html?job={job_id}&api_base={api_base}&render_mode=pdf"
-    logger.info("PDF_RENDER_START job_id=%s url=%s", job_id, url)
+    url = _append_api_key_query(url, secret)
+    logger.info(
+        "PDF_RENDER_START job_id=%s url=%s",
+        job_id,
+        _redact_api_key_from_url_for_log(url),
+    )
     t0 = time.perf_counter()
 
     async with async_playwright() as p:

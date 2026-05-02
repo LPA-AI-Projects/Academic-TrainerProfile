@@ -164,7 +164,9 @@ def _resolve_completed_trainer_job(
 def _export_links_for_job(request: Request, job_id: str) -> ProfileExportLinks:
     base = _public_base_url(request)
     api_base = quote(base, safe=":/?&=")
-    ui = f"{base}/trainer-profile/index.html?job={job_id}&api_base={api_base}"
+    secret = (settings.api_secret_key or "").strip()
+    key_q = f"&api_key={quote(secret, safe='')}" if secret else ""
+    ui = f"{base}/trainer-profile/index.html?job={job_id}&api_base={api_base}{key_q}"
     ui_print = f"{ui}&autoprint=1"
     pdf = f"{base}/api/v1/profiles/{job_id}/pdf"
     pdf_file = f"{base}/pdfs/{job_id}.pdf"

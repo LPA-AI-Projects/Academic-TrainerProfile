@@ -412,7 +412,10 @@ async function loadJobFromQueryIfPresent() {
 
   setStatus(`Loading job ${jobId}...`);
   try {
-    const response = await fetch(`${apiBase}/api/v1/profiles/${encodeURIComponent(jobId)}`);
+    const apiKey = (getQueryParam('api_key') || '').trim();
+    const headers = {};
+    if (apiKey) headers['X-API-Key'] = apiKey;
+    const response = await fetch(`${apiBase}/api/v1/profiles/${encodeURIComponent(jobId)}`, { headers });
     const data = await response.json();
     if (!response.ok) {
       throw new Error(data?.detail || 'Failed to load job.');
