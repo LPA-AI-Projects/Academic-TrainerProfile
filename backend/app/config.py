@@ -123,12 +123,14 @@ class Settings(BaseSettings):
             out = urlunparse(parsed._replace(query=new_query))
         return out
 
-    default_provider: str = "openai"
-    default_model: str = "gpt-4.1-mini"
+    default_provider: str = "anthropic"
+    default_model: str = "claude-sonnet-4-6"
     anthropic_api_key: str | None = None
     anthropic_base_url: str | None = None
     anthropic_model: str = "claude-sonnet-4-6"
     openai_api_key: str | None = None
+    # Used when provider is openai and request does not specify model_name.
+    openai_model: str = "gpt-4.1-mini"
 
     max_cv_chars: int = 30000
     max_outline_chars: int = 15000

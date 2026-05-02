@@ -499,6 +499,22 @@ def get_scalar_field_str(record: dict, field_api_name: str) -> str | None:
     if not field_api_name:
         return None
     raw = record.get(field_api_name)
+    # Zoho API names are case-sensitive; env often uses Trainer_Unique_code vs CRM Trainer_Unique_Code.
+    if raw is None:
+        fl = field_api_name.lower()
+        if "trainer" in fl and "unique" in fl:
+            for alt in ("Trainer_Unique_Code", "Trainer_Unique_code"):
+                if alt == field_api_name:
+                    continue
+                t = record.get(alt)
+                if t is not None:
+                    raw = t
+                    logger.info(
+                        "ZOHO_SCALAR_FIELD_ALIAS resolved=%s requested=%s",
+                        alt,
+                        field_api_name,
+                    )
+                    break
     if raw is None:
         logger.info("ZOHO_SCALAR_FIELD field=%s raw_type=None resolved=(null)", field_api_name)
         return None

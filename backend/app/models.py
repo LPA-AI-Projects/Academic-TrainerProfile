@@ -14,7 +14,7 @@ class TrainerProfileJob(Base):
     zoho_record_id: Mapped[str] = mapped_column(String(128), index=True)
     cv_path: Mapped[str] = mapped_column(Text())
     course_outline_paths: Mapped[list[str]] = mapped_column(JSON, default=list)
-    provider: Mapped[str] = mapped_column(String(32), default="openai")
+    provider: Mapped[str] = mapped_column(String(32), default="anthropic")
     model_name: Mapped[str] = mapped_column(String(128), default="gpt-4.1-mini")
     status: Mapped[str] = mapped_column(String(24), default="pending")
     prompt_version: Mapped[str] = mapped_column(String(32), default="v1")

@@ -5,6 +5,9 @@ from anthropic import Anthropic
 from openai import OpenAI
 
 from ..config import Settings, get_settings
+from ..utils.logger import get_logger
+
+logger = get_logger(__name__)
 
 
 def _mock_response() -> dict[str, Any]:
@@ -62,6 +65,9 @@ def _extract_json_object(text: str) -> dict[str, Any]:
 def _generate_openai(prompt: str, settings: Settings, model_name: str) -> tuple[dict[str, Any], str]:
     if not settings.openai_api_key:
         if settings.allow_mock_generation:
+            logger.warning(
+                "LLM_MOCK_OPENAI key_missing=1 allow_mock_generation=1 — set OPENAI_API_KEY for real profiles."
+            )
             return _mock_response(), "mock-openai-response"
         raise ValueError("OPENAI_API_KEY is missing.")
 
@@ -84,6 +90,9 @@ def _generate_openai(prompt: str, settings: Settings, model_name: str) -> tuple[
 def _generate_anthropic(prompt: str, settings: Settings, model_name: str) -> tuple[dict[str, Any], str]:
     if not settings.anthropic_api_key:
         if settings.allow_mock_generation:
+            logger.warning(
+                "LLM_MOCK_ANTHROPIC key_missing=1 allow_mock_generation=1 — set ANTHROPIC_API_KEY for real profiles."
+            )
             return _mock_response(), "mock-anthropic-response"
         raise ValueError("ANTHROPIC_API_KEY is missing.")
 
@@ -113,7 +122,7 @@ def generate_profile_json(
     elif resolved_provider == "anthropic":
         resolved_model = settings.anthropic_model or settings.default_model
     else:
-        resolved_model = settings.default_model
+        resolved_model = settings.openai_model
 
     if resolved_provider == "openai":
         payload, raw = _generate_openai(prompt, settings, resolved_model)
@@ -144,7 +153,7 @@ def refine_profile_text(
     elif resolved_provider == "anthropic":
         resolved_model = settings.anthropic_model or settings.default_model
     else:
-        resolved_model = settings.default_model
+        resolved_model = settings.openai_model
 
     prompt = (
         "You are refining a trainer profile summary.\n"
