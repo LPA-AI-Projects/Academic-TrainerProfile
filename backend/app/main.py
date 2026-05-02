@@ -460,7 +460,7 @@ async def refine_profile(payload: RefineProfileRequest, request: Request, db: Se
         zoho_record_id=payload.zoho_record_id,
         unique_code=payload.unique_code,
     )
-    if not job.generated_profile:
+    if job.generated_profile is None:
         raise HTTPException(status_code=400, detail="Job is not ready for feedback refinement")
 
     current_profile = str((job.generated_profile or {}).get("profile") or "").strip()
@@ -730,7 +730,7 @@ def get_profile_job(profile_ref: str, request: Request, db: Session = Depends(ge
         model_name=job.model_name,
         cv_path=job.cv_path,
         course_outline_paths=job.course_outline_paths,
-        generated_profile=job.generated_profile if job.generated_profile else None,
+        generated_profile=job.generated_profile if job.generated_profile is not None else None,
         pdf_url=pdf_url,
         export=export,
         error_message=job.error_message,
@@ -751,7 +751,7 @@ async def download_profile_pdf(job_id: str, request: Request, db: Session = Depe
     if not job:
         logger.warning("API_PDF_NOT_FOUND job_id=%s", job_id)
         raise HTTPException(status_code=404, detail="Job not found")
-    if job.status != "completed" or not job.generated_profile:
+    if job.status != "completed" or job.generated_profile is None:
         logger.warning("API_PDF_NOT_READY job_id=%s status=%s", job_id, job.status)
         raise HTTPException(status_code=400, detail="Job is not ready for PDF export")
 
@@ -822,7 +822,7 @@ async def upload_profile_pdf_to_drive(payload: DriveUploadRequest, request: Requ
         zoho_record_id=payload.zoho_record_id,
         unique_code=payload.unique_code,
     )
-    if not job.generated_profile:
+    if job.generated_profile is None:
         raise HTTPException(status_code=400, detail="Job is not ready for Drive upload")
 
     resolved_unique = (payload.unique_code or "").strip() or _trainer_unique_from_job(job) or "trainer"

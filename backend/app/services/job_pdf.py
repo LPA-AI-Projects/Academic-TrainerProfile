@@ -41,7 +41,7 @@ async def ensure_job_pdf_on_disk(
 
     Returns the absolute PDF path.
     """
-    if job.status != "completed" or not job.generated_profile:
+    if job.status != "completed" or job.generated_profile is None:
         raise ValueError("Job is not ready for PDF export")
 
     target = job_pdf_abs_path(job.id)

@@ -425,6 +425,8 @@ async function loadJobFromQueryIfPresent() {
     }
 
     applyGeneratedProfile(data.generated_profile);
+    const ready = document.getElementById('cv-profile-loaded');
+    if (ready) ready.setAttribute('data-ready', '1');
     console.info('[trainer-profile] job data loaded', { jobId, status: data.status, keys: Object.keys(data) });
     setStatus(`Loaded job ${jobId}. Use Print / Export PDF to download a PDF.`);
   } catch (error) {

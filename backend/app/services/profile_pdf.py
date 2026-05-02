@@ -49,7 +49,10 @@ async def render_trainer_profile_pdf(*, public_base_url: str, job_id: str) -> by
     api_base = quote(base, safe=":/?&=")
     settings = get_settings()
     secret = (settings.api_secret_key or "").strip()
-    url = f"{base}/trainer-profile/index.html?job={job_id}&api_base={api_base}&render_mode=pdf"
+    url = (
+        f"{base}/trainer-profile/index.html?job={job_id}&api_base={api_base}"
+        f"&render_mode=pdf&pdf_server_apply=1"
+    )
     url = _append_api_key_query(url, secret)
     logger.info(
         "PDF_RENDER_START job_id=%s url=%s",
@@ -90,28 +93,53 @@ async def render_trainer_profile_pdf(*, public_base_url: str, job_id: str) -> by
             # `networkidle` can hang on local dev servers; `load` is more reliable here.
             await page.goto(url, wait_until="load", timeout=120_000)
 
-            # Wait for rendered content. Support both:
-            # 1) dynamic builder template selectors, and
-            # 2) fixed HTML templates without those specific ids/classes.
+            # Fetch job JSON in the Playwright context (same headers as API) so the page does not depend on
+            # in-browser fetch, query-string api_key, or timing — fixes empty PDFs when the client fetch fails.
+            api_headers = {}
+            if secret:
+                api_headers["X-API-Key"] = secret
+            api_resp = await page.request.get(
+                f"{base}/api/v1/profiles/{job_id}",
+                headers=api_headers,
+            )
+            if not api_resp.ok:
+                err_body = (await api_resp.text())[:800]
+                raise RuntimeError(
+                    f"PDF prefetch failed: HTTP {api_resp.status} for job_id={job_id}: {err_body}"
+                )
+            job_payload = await api_resp.json()
+
+            await page.wait_for_function(
+                "() => typeof window.__applyTrainerProfile === 'function'",
+                timeout=120_000,
+            )
+            applied = await page.evaluate(
+                """(payload) => {
+                  if (!payload || payload.status !== 'completed') return false;
+                  const gp = payload.generated_profile;
+                  if (gp == null) return false;
+                  window.__applyTrainerProfile(gp);
+                  const m = document.getElementById('cv-profile-loaded');
+                  if (m) m.setAttribute('data-ready', '1');
+                  return true;
+                }""",
+                job_payload,
+            )
+            if not applied:
+                raise RuntimeError(
+                    f"PDF apply failed for job_id={job_id}: "
+                    f"status={job_payload.get('status')!r} "
+                    f"generated_profile_present={job_payload.get('generated_profile') is not None}"
+                )
+
             await page.wait_for_function(
                 """
                 () => {
-                  const hasPages = document.querySelectorAll('.cv-page, .page').length >= 1;
-                  if (!hasPages) return false;
-
-                  const dynName = document.querySelector('.cv-p1-name')?.textContent?.trim() || '';
-                  const staticName = document.querySelector('h1')?.textContent?.trim() || '';
-                  const name = dynName || staticName;
-                  if (name.length < 2) return false;
-
-                  const dynPrograms = document.querySelectorAll('#cv-p1-programs-ul li, #cv-p2-programs-ul li').length;
-                  const dynTraining = document.querySelectorAll('#cv-p2-training-ul li').length;
-                  const genericItems = document.querySelectorAll('section.page ul li, .cv-page ul li').length;
-
-                  return dynPrograms > 0 || dynTraining > 0 || genericItems > 0 || name.length >= 3;
+                  const marker = document.getElementById('cv-profile-loaded');
+                  return marker && marker.getAttribute('data-ready') === '1';
                 }
                 """,
-                timeout=120_000,
+                timeout=30_000,
             )
             await page.wait_for_timeout(800)
 
