@@ -286,30 +286,36 @@ def _looks_like_zoho_crm_record_id(s: str) -> bool:
     return True
 
 
-def search_crm_record_ids_by_field_equals(
+def search_crm_record_ids_by_field(
     module_api_name: str,
     field_api_name: str,
     value: str,
+    *,
+    operator: str = "equals",
 ) -> list[str]:
     """
-    Zoho CRM `Search Records` API (v2): match one field with ``equals``.
+    Zoho CRM `Search Records` API (v2): match one field.
+
+    ``operator`` is the Zoho criteria operator, e.g. ``equals``, ``starts_with``.
 
     See: https://www.zoho.com/crm/developer/docs/api/v2/search-records.html
     """
     mod = (module_api_name or "").strip()
     field = (field_api_name or "").strip()
     v = (value or "").strip()
+    op = (operator or "equals").strip() or "equals"
     if not mod or not field or not v:
         return []
-    crit = f"({field}:equals:{v})"
+    crit = f"({field}:{op}:{v})"
     path = f"/crm/v2/{mod}/search"
     try:
         data = _crm_v2_get_with_params(path, {"criteria": crit})
     except Exception:
         logger.exception(
-            "ZOHO_SEARCH_FAILED module=%s field=%s value_len=%s",
+            "ZOHO_SEARCH_FAILED module=%s field=%s op=%s value_len=%s",
             mod,
             field,
+            op,
             len(v),
         )
         return []
@@ -323,13 +329,25 @@ def search_crm_record_ids_by_field_equals(
             if rid:
                 out.append(rid)
     logger.info(
-        "ZOHO_SEARCH_OK module=%s field=%s value_preview=%r match_count=%s",
+        "ZOHO_SEARCH_OK module=%s field=%s op=%s value_preview=%r match_count=%s",
         mod,
         field,
+        op,
         v[:120],
         len(out),
     )
     return out
+
+
+def search_crm_record_ids_by_field_equals(
+    module_api_name: str,
+    field_api_name: str,
+    value: str,
+) -> list[str]:
+    """Backward-compatible alias for ``search_crm_record_ids_by_field(..., operator=\"equals\")``."""
+    return search_crm_record_ids_by_field(
+        module_api_name, field_api_name, value, operator="equals"
+    )
 
 
 def extract_file_id_from_zoho_field(value: object) -> str | None:

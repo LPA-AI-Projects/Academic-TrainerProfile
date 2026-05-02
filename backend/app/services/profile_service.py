@@ -21,7 +21,7 @@ from .zoho_service import (
     format_zoho_field_debug,
     get_file_id_from_record_field,
     get_scalar_field_str,
-    search_crm_record_ids_by_field_equals,
+    search_crm_record_ids_by_field,
 )
 
 logger = get_logger(__name__)
@@ -285,14 +285,8 @@ def _complete_job_after_prompt(
 
 
 def _parent_multi_trainer_enabled(settings: object) -> bool:
-    return bool(
-        (getattr(settings, "zoho_parent_module_api_name", None) or "").strip()
-        and (getattr(settings, "zoho_parent_outline_field_api_name", None) or "").strip()
-        and (getattr(settings, "zoho_parent_trainers_lookup_field_api_name", None) or "").strip()
-        and (getattr(settings, "zoho_trainer_module_api_name", None) or "").strip()
-        and (getattr(settings, "zoho_trainer_cv_field_api_name", None) or "").strip()
-        and (getattr(settings, "zoho_trainer_unique_code_field_api_name", None) or "").strip()
-    )
+    # Trainer module, CV/code fields, outline + lookup field API names default in config; only parent module must be set.
+    return bool((getattr(settings, "zoho_parent_module_api_name", None) or "").strip())
 
 
 def generate_from_parent_with_trainers(
@@ -362,14 +356,26 @@ def generate_from_parent_with_trainers(
     trainer_ids = extract_multiselect_lookup_ids(lookup_raw)
     if (
         not trainer_ids
-        and getattr(settings, "zoho_trainer_lookup_resolve_by_name", False)
-        and (getattr(settings, "zoho_trainer_search_field_api_name", None) or "").strip()
+        and settings.zoho_trainer_lookup_resolve_by_name
         and isinstance(lookup_raw, str)
         and lookup_raw.strip()
     ):
-        match_field = (settings.zoho_trainer_search_field_api_name or "").strip()
+        match_field = settings.zoho_trainer_search_field_api_name.strip()
         for part in [p.strip() for p in re.split(r"[,;]", lookup_raw) if p.strip()]:
-            for rid in search_crm_record_ids_by_field_equals(trainer_mod, match_field, part):
+            found: list[str] = []
+            for op in ("equals", "starts_with"):
+                found = search_crm_record_ids_by_field(
+                    trainer_mod, match_field, part, operator=op
+                )
+                if found:
+                    logger.info(
+                        "GEN_PARENT_NAME_SEARCH_HIT part=%r operator=%s ids=%s",
+                        part,
+                        op,
+                        found,
+                    )
+                    break
+            for rid in found:
                 if rid not in trainer_ids:
                     trainer_ids.append(rid)
         logger.info(
@@ -541,7 +547,7 @@ def generate_and_store_profile(
     logger.info(
         "GEN_ROUTE legacy_single_record_flow=1 zoho_record_id=%s zoho_module=%s",
         payload.zoho_record_id,
-        (settings.zoho_module_api_name or "").strip() or "(not set)",
+        settings.zoho_module_api_name,
     )
     temp_zoho_paths: list[Path] = []
     stored_outline_refs: list[str] = list(payload.course_outline_paths)

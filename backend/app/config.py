@@ -68,6 +68,16 @@ def normalize_zoho_dc_value(v: object) -> str:
     return default
 
 
+def _zoho_str_or_default(v: object, default: str) -> str:
+    """Empty or missing env values fall back to in-code defaults (Zoho API names are case-sensitive)."""
+    if v is None:
+        return default
+    if isinstance(v, str):
+        t = v.strip()
+        return t if t else default
+    return default
+
+
 class Settings(BaseSettings):
     app_name: str = "Trainer Profile API"
     app_env: str = "dev"
@@ -175,28 +185,26 @@ class Settings(BaseSettings):
             return t if t else default
         return default
 
-    # When request has only `zoho_record_id`, fetch file-upload field(s) from this module (e.g. Trainers, Contacts).
-    zoho_module_api_name: str | None = None
-    # CRM field API names for File Upload fields (configure to match your Zoho layout).
-    zoho_cv_field_api_name: str | None = None
+    # When request has only `zoho_record_id`, fetch file-upload field(s) from this module.
+    # Default matches the Trainers module; override if your single-record layout differs.
+    zoho_module_api_name: str = Field(default="Trainers")
+    # CRM field API names for File Upload fields (defaults match Trainers layout).
+    zoho_cv_field_api_name: str = Field(default="Trainer_CV")
     zoho_outline_field_api_name: str | None = None
 
     # Optional: course / parent record flow — outline on parent, multi-select lookup to Trainers, CV on each trainer.
-    # When all of these are set, `zoho_record_id` in the request is the *parent* record id (e.g. course).
+    # Set ZOHO_PARENT_MODULE_API_NAME to your parent module API name (e.g. Closure_Activities); other names default below.
     zoho_parent_module_api_name: str | None = None
-    # File upload on parent (e.g. Final_Course_Outline).
-    zoho_parent_outline_field_api_name: str | None = None
-    # Multi-select lookup on parent → Trainers (field API name on the parent module).
-    zoho_parent_trainers_lookup_field_api_name: str | None = None
-    # Target module for each linked id (API name, e.g. Trainers).
-    zoho_trainer_module_api_name: str | None = None
-    zoho_trainer_cv_field_api_name: str | None = None
-    # Auto number or text — shown as main heading (e.g. Trainer_Unique_code).
-    zoho_trainer_unique_code_field_api_name: str | None = None
-    # When parent lookup returns plain text (not {id,name}), resolve Trainers via Search Records API.
-    zoho_trainer_lookup_resolve_by_name: bool = False
-    # Field on the **Trainers** module to match (API name), e.g. Name or Last_Name — required for name resolve.
-    zoho_trainer_search_field_api_name: str | None = None
+    zoho_parent_outline_field_api_name: str = Field(default="Final_Course_Outline")
+    zoho_parent_trainers_lookup_field_api_name: str = Field(default="Trainers")
+    # Target module for each linked trainer id (Search API + Get Record).
+    zoho_trainer_module_api_name: str = Field(default="Trainers")
+    zoho_trainer_cv_field_api_name: str = Field(default="Trainer_CV")
+    zoho_trainer_unique_code_field_api_name: str = Field(default="Trainer_Unique_Code")
+    # When parent field has display text only (e.g. "Sabith Test"), search Trainers by this field then fetch CV + code.
+    zoho_trainer_lookup_resolve_by_name: bool = True
+    # Trainers module field API name to match parent text (Name, Full_Name, custom text field, …).
+    zoho_trainer_search_field_api_name: str = Field(default="Name")
 
     # Google Drive OAuth (for uploading generated trainer profile PDFs).
     google_client_id: str | None = None
@@ -205,12 +213,48 @@ class Settings(BaseSettings):
     # Optional parent folder in Drive; if empty, My Drive root is used.
     google_drive_folder_id: str | None = None
 
+    @field_validator(
+        "zoho_module_api_name",
+        "zoho_trainer_module_api_name",
+        "zoho_parent_trainers_lookup_field_api_name",
+        mode="before",
+    )
+    @classmethod
+    def default_zoho_trainers_module_name(cls, v: object) -> str:
+        return _zoho_str_or_default(v, "Trainers")
+
+    @field_validator("zoho_cv_field_api_name", "zoho_trainer_cv_field_api_name", mode="before")
+    @classmethod
+    def default_zoho_trainer_cv_field(cls, v: object) -> str:
+        return _zoho_str_or_default(v, "Trainer_CV")
+
+    @field_validator("zoho_trainer_unique_code_field_api_name", mode="before")
+    @classmethod
+    def default_zoho_trainer_unique_code_field(cls, v: object) -> str:
+        return _zoho_str_or_default(v, "Trainer_Unique_Code")
+
+    @field_validator("zoho_parent_outline_field_api_name", mode="before")
+    @classmethod
+    def default_zoho_parent_outline_field(cls, v: object) -> str:
+        return _zoho_str_or_default(v, "Final_Course_Outline")
+
     @field_validator("zoho_trainer_lookup_resolve_by_name", mode="before")
     @classmethod
     def coerce_zoho_trainer_resolve_bool(cls, v: object) -> bool:
         if isinstance(v, str):
-            return v.strip().lower() in ("1", "true", "yes", "on")
+            s = v.strip().lower()
+            if s in ("0", "false", "no", "off", ""):
+                return False
+            return s in ("1", "true", "yes", "on")
         return bool(v)
+
+    @field_validator("zoho_trainer_search_field_api_name", mode="before")
+    @classmethod
+    def strip_trainer_search_field(cls, v: object) -> str:
+        if v is None or not isinstance(v, str):
+            return "Name"
+        t = v.strip()
+        return t if t else "Name"
 
     model_config = SettingsConfigDict(
         env_file=".env",
