@@ -34,7 +34,7 @@ from .schemas import (
 )
 from .services.google_drive_service import GoogleDriveUploadError, upload_trainer_profile_pdf
 from .services.job_pdf import ensure_job_pdf_on_disk
-from .services.profile_service import generate_and_store_profile
+from .services.profile_service import generate_and_store_profile, maybe_google_drive_upload_after_pdf
 from .services.llm_client import refine_profile_text
 
 settings = get_settings()
@@ -161,6 +161,18 @@ def _resolve_completed_trainer_job(
     return rows[0]
 
 
+def _parsed_drive_url(job: TrainerProfileJob) -> str | None:
+    pi = job.parsed_inputs if isinstance(job.parsed_inputs, dict) else {}
+    u = pi.get("google_drive_pdf_url")
+    return str(u).strip() if u else None
+
+
+def _parsed_drive_err(job: TrainerProfileJob) -> str | None:
+    pi = job.parsed_inputs if isinstance(job.parsed_inputs, dict) else {}
+    e = pi.get("google_drive_upload_error")
+    return str(e).strip() if e else None
+
+
 def _export_links_for_job(request: Request, job_id: str) -> ProfileExportLinks:
     base = _public_base_url(request)
     api_base = quote(base, safe=":/?&=")
@@ -202,6 +214,7 @@ def _build_generate_profile_response(request: Request, jobs: list[TrainerProfile
                     trainer_record_id=str(tid) if tid is not None else None,
                     pdf_url=exp.pdf_url,
                     generated_profile=j.generated_profile,
+                    google_drive_pdf_url=_parsed_drive_url(j),
                 )
             )
     return GenerateProfileResponse(
@@ -209,6 +222,8 @@ def _build_generate_profile_response(request: Request, jobs: list[TrainerProfile
         zoho_record_id=first.zoho_record_id,
         pdf_url=export.pdf_url,
         generated_profile=first.generated_profile,
+        google_drive_pdf_url=_parsed_drive_url(first),
+        google_drive_upload_error=_parsed_drive_err(first),
         jobs=items,
     )
 
@@ -381,6 +396,7 @@ async def generate_profile(request: Request, db: Session = Depends(get_db)):
     try:
         payload = GenerateProfileRequest(
             zoho_record_id=zid,
+            course_name=(form_data.get("course_name") or "").strip() or None,
             cv=(form_data.get("cv") or "").strip() or None,
             cv_path=(form_data.get("cv_path") or "").strip() or None,
             course_outline_paths=outline_list,
@@ -491,6 +507,7 @@ async def refine_profile(payload: RefineProfileRequest, request: Request, db: Se
     # Rebuild PDF so exported file reflects refined profile text.
     try:
         await ensure_job_pdf_on_disk(db=db, job=job, public_base_url=_public_base_url(request))
+        await maybe_google_drive_upload_after_pdf(job, db)
     except Exception as exc:
         job.pdf_generation_error = str(exc)
         db.add(job)
@@ -498,6 +515,7 @@ async def refine_profile(payload: RefineProfileRequest, request: Request, db: Se
         db.refresh(job)
         logger.exception("API_V2_REFINE_PDF_FAILED job_id=%s", job.id)
 
+    db.refresh(job)
     export = _export_links_for_job(request, job.id)
     logger.info("API_REFINE_DONE job_id=%s zoho_record_id=%s pdf_url=%s", job.id, job.zoho_record_id, export.pdf_url)
     return GenerateProfileResponse(
@@ -505,6 +523,8 @@ async def refine_profile(payload: RefineProfileRequest, request: Request, db: Se
         zoho_record_id=job.zoho_record_id,
         pdf_url=export.pdf_url,
         generated_profile=job.generated_profile,
+        google_drive_pdf_url=_parsed_drive_url(job),
+        google_drive_upload_error=_parsed_drive_err(job),
     )
 
 
@@ -559,6 +579,7 @@ async def generate_profile_form(
     request: Request,
     db: Session = Depends(get_db),
     zoho_record_id: str = Form(...),
+    course_name: str | None = Form(None, description="Optional: Drive folder segment + filename (see GOOGLE_DRIVE_AUTO_UPLOAD)."),
     cv: str | None = Form(None, description="Zoho CRM file id for CV (optional if cv_file, cv_path, or CRM field env is used)"),
     cv_path: str | None = Form(None, description="Server-readable path to CV (optional)"),
     cv_file: UploadFile | None = File(None, description="Uploaded CV file (optional)"),
@@ -615,6 +636,7 @@ async def generate_profile_form(
 
         payload = GenerateProfileRequest(
             zoho_record_id=zid,
+            course_name=course_name.strip() if course_name and course_name.strip() else None,
             cv=cv_id_effective,
             cv_path=cv_path_effective,
             course_outline_paths=outline_list,

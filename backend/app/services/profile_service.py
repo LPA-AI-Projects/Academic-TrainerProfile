@@ -1,3 +1,4 @@
+import asyncio
 import random
 import re
 import time
@@ -10,7 +11,8 @@ from ..utils.logger import get_logger
 from ..models import TrainerProfileJob
 from ..schemas import GenerateProfileRequest
 from .file_parser import read_text_from_path, truncate_inputs
-from .job_pdf import ensure_job_pdf_on_disk
+from .google_drive_service import GoogleDriveUploadError, upload_trainer_profile_pdf
+from .job_pdf import ensure_job_pdf_on_disk, job_pdf_abs_path
 from .llm_client import generate_profile_json
 from .prompt_builder import build_prompt
 from .zoho_service import (
@@ -27,6 +29,75 @@ from .zoho_service import (
 logger = get_logger(__name__)
 
 _BACKEND_DIR = Path(__file__).resolve().parents[2]
+
+
+def _google_drive_oauth_ready(settings: object) -> bool:
+    return bool(
+        (getattr(settings, "google_client_id", None) or "").strip()
+        and (getattr(settings, "google_client_secret", None) or "").strip()
+        and (getattr(settings, "google_refresh_token", None) or "").strip()
+    )
+
+
+def _job_trainer_unique_for_drive(job: TrainerProfileJob) -> str:
+    parsed = job.parsed_inputs if isinstance(job.parsed_inputs, dict) else {}
+    return (str(parsed.get("trainer_unique_code") or "").strip() or "trainer")[:120]
+
+
+def _job_drive_course_name(job: TrainerProfileJob) -> str:
+    settings = get_settings()
+    parsed = job.parsed_inputs if isinstance(job.parsed_inputs, dict) else {}
+    v = parsed.get("drive_course_name")
+    if isinstance(v, str) and v.strip():
+        return v.strip()
+    return (settings.google_drive_fallback_course_name or "Course").strip()
+
+
+async def _maybe_google_drive_upload_after_pdf(job: TrainerProfileJob, db: Session) -> None:
+    """
+    When GOOGLE_DRIVE_AUTO_UPLOAD=true and OAuth env is set, upload the saved PDF and
+    store `google_drive_pdf_url` / `google_drive_upload_error` on `parsed_inputs`.
+    """
+    settings = get_settings()
+    if not settings.google_drive_auto_upload:
+        return
+    if not _google_drive_oauth_ready(settings):
+        logger.info("GEN_DRIVE_SKIP oauth_not_configured auto_upload=1")
+        return
+    path = job_pdf_abs_path(job.id)
+    if not path.is_file() or path.stat().st_size <= 0:
+        logger.warning("GEN_DRIVE_SKIP missing_pdf job_id=%s path=%s", job.id, path)
+        return
+    drive_link: str | None = None
+    drive_err: str | None = None
+    try:
+        result = await asyncio.to_thread(
+            upload_trainer_profile_pdf,
+            pdf_bytes=path.read_bytes(),
+            unique_code=_job_trainer_unique_for_drive(job),
+            course_name=_job_drive_course_name(job),
+        )
+        drive_link = str(result.get("view_link") or "").strip() or None
+        logger.info("GEN_DRIVE_OK job_id=%s view_link=%s", job.id, drive_link or "")
+    except GoogleDriveUploadError as exc:
+        drive_err = str(exc)
+        logger.exception("GEN_DRIVE_FAILED job_id=%s", job.id)
+
+    pi = dict(job.parsed_inputs) if isinstance(job.parsed_inputs, dict) else {}
+    if drive_link:
+        pi["google_drive_pdf_url"] = drive_link
+        pi.pop("google_drive_upload_error", None)
+    if drive_err:
+        pi["google_drive_upload_error"] = drive_err
+    job.parsed_inputs = pi
+    db.add(job)
+    db.commit()
+    db.refresh(job)
+
+
+async def maybe_google_drive_upload_after_pdf(job: TrainerProfileJob, db: Session) -> None:
+    """Public hook for routes that save a PDF outside `_complete_job_after_prompt` (e.g. refine)."""
+    await _maybe_google_drive_upload_after_pdf(job, db)
 
 
 def _temp_cv_dir() -> Path:
@@ -267,6 +338,7 @@ async def _complete_job_after_prompt(
                 (time.perf_counter() - t_pdf) * 1000,
                 str(pdf_path),
             )
+            await _maybe_google_drive_upload_after_pdf(job, db)
         except Exception as exc:
             job.pdf_generation_error = str(exc)
             db.add(job)
@@ -417,6 +489,15 @@ async def generate_from_parent_with_trainers(
             len(outline_text),
         )
 
+        cn_field = (settings.zoho_parent_course_name_field_api_name or "").strip()
+        if (payload.course_name or "").strip():
+            parent_drive_course = (payload.course_name or "").strip()
+        elif cn_field:
+            raw_cn = get_scalar_field_str(parent_record, cn_field)
+            parent_drive_course = (raw_cn or "").strip() or settings.google_drive_fallback_course_name
+        else:
+            parent_drive_course = settings.google_drive_fallback_course_name
+
         for trainer_id in trainer_ids:
             t0 = time.perf_counter()
             trainer_row = fetch_crm_record(trainer_mod, trainer_id)
@@ -482,6 +563,7 @@ async def generate_from_parent_with_trainers(
                         "parent_module": parent_mod,
                         "trainer_record_id": trainer_id,
                         "trainer_unique_code": heading_label,
+                        "drive_course_name": parent_drive_course,
                     },
                 )
                 db.add(job)
@@ -652,6 +734,8 @@ async def generate_and_store_profile(
 
     prompt = build_prompt(cv_trimmed, outline_trimmed)
 
+    drive_cn = (payload.course_name or "").strip() or settings.google_drive_fallback_course_name
+
     job = TrainerProfileJob(
         zoho_record_id=payload.zoho_record_id,
         cv_path=cv_path_stored,
@@ -663,6 +747,7 @@ async def generate_and_store_profile(
         parsed_inputs={
             "cv_excerpt": cv_trimmed[:4000],
             "outline_count": len(outline_trimmed),
+            "drive_course_name": drive_cn,
         },
     )
     db.add(job)

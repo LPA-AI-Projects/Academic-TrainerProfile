@@ -207,6 +207,8 @@ class Settings(BaseSettings):
     zoho_trainer_lookup_resolve_by_name: bool = True
     # Trainers module field API name to match parent text (Name, Full_Name, custom text field, …).
     zoho_trainer_search_field_api_name: str = Field(default="Name")
+    # Parent module field used as Drive folder name (ai_automation/trainer_profile/{course}/).
+    zoho_parent_course_name_field_api_name: str = Field(default="Product_Course_Name1")
 
     # Google Drive OAuth (for uploading generated trainer profile PDFs).
     google_client_id: str | None = None
@@ -214,6 +216,9 @@ class Settings(BaseSettings):
     google_refresh_token: str | None = None
     # Optional parent folder in Drive; if empty, My Drive root is used.
     google_drive_folder_id: str | None = None
+    # After PDF is saved, upload to Drive and include `google_drive_pdf_url` in POST /generate response.
+    google_drive_auto_upload: bool = False
+    google_drive_fallback_course_name: str = "Course"
 
     @field_validator(
         "zoho_module_api_name",
@@ -257,6 +262,16 @@ class Settings(BaseSettings):
             return "Name"
         t = v.strip()
         return t if t else "Name"
+
+    @field_validator("google_drive_auto_upload", mode="before")
+    @classmethod
+    def coerce_google_drive_auto_upload(cls, v: object) -> bool:
+        if isinstance(v, str):
+            s = v.strip().lower()
+            if s in ("0", "false", "no", "off", ""):
+                return False
+            return s in ("1", "true", "yes", "on")
+        return bool(v)
 
     model_config = SettingsConfigDict(
         env_file=".env",

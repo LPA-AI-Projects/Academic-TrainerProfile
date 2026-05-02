@@ -8,6 +8,8 @@ from pydantic import BaseModel, Field, field_validator, model_validator
 
 class GenerateProfileRequest(BaseModel):
     zoho_record_id: str = Field(min_length=1, max_length=128)
+    # Optional: Google Drive folder segment + upload filename (see GOOGLE_DRIVE_* env). Webhook can pass this field.
+    course_name: str | None = Field(default=None, max_length=200)
     # Zoho CRM attachment / file id (webhook payload); downloaded server-side.
     cv: str | None = Field(default=None, max_length=256)
     # Local filesystem path (dev / non-Zoho callers).
@@ -21,6 +23,16 @@ class GenerateProfileRequest(BaseModel):
     @classmethod
     def validate_outline_paths(cls, value: list[str]) -> list[str]:
         return [v for v in value if v and v.strip()]
+
+    @field_validator("course_name", mode="before")
+    @classmethod
+    def empty_course_name(cls, value: object) -> str | None:
+        if value is None:
+            return None
+        if isinstance(value, str):
+            s = value.strip()
+            return s or None
+        return str(value).strip() or None
 
     @model_validator(mode="after")
     def require_cv_source(self) -> Self:
@@ -72,6 +84,7 @@ class GenerateProfileJobItem(BaseModel):
     trainer_record_id: str | None = None
     pdf_url: str
     generated_profile: GeneratedProfilePayload
+    google_drive_pdf_url: str | None = None
 
 
 class GenerateProfileResponse(BaseModel):
@@ -81,6 +94,9 @@ class GenerateProfileResponse(BaseModel):
     zoho_record_id: str
     pdf_url: str
     generated_profile: GeneratedProfilePayload
+    # Set when GOOGLE_DRIVE_AUTO_UPLOAD=true and OAuth is configured (same as POST /upload-to-drive).
+    google_drive_pdf_url: str | None = None
+    google_drive_upload_error: str | None = None
     # When the parent-record + multi-trainer Zoho flow runs, one entry per trainer.
     jobs: list[GenerateProfileJobItem] | None = None
 
