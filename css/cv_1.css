@@ -1,0 +1,555 @@
+/* ═══════════════════════════════════════════════════════════
+   CV Page Styles — Trainer CV (Learners Point)
+   Source: Figma file 6PMhHqsa2SvYkD7PmF6Zcl
+   ═══════════════════════════════════════════════════════════ */
+
+/* Design tokens */
+:root {
+  --cv-primary: #2e9d91;
+  --cv-section-bg: rgba(79, 113, 242, 0.08);
+  --cv-text-dark: #333333;
+  --cv-text-body: #141414;
+  --cv-font: 'Helvetica Neue', Arial, Helvetica, sans-serif;
+}
+
+/* ── Base page ─────────────────────────────────────────────── */
+.cv-page {
+  position: relative;
+  width: 595px;
+  height: 842px;
+  background: #ffffff;
+  overflow: hidden;
+  font-family: var(--cv-font);
+  color: var(--cv-text-dark);
+  box-shadow: 0 4px 24px rgba(0, 0, 0, 0.14);
+  flex-shrink: 0;
+}
+
+/* ═══════════════════════════════════════════════════════════
+   PAGE 1  (A4 - 10)
+   ═══════════════════════════════════════════════════════════ */
+
+/* Decorative blob — top-left, bleeds off the corner */
+.cv-p1-deco {
+  position: absolute;
+  left: -3px;
+  top: -53px;
+  width: 205px;
+  height: 103px;
+  pointer-events: none;
+  z-index: 2;
+}
+
+/* Learners Point logo — top-right */
+.cv-p1-logo {
+  position: absolute;
+  left: 408px;
+  top: 24px;
+  width: 166px;
+  height: 22px;
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  z-index: 2;
+}
+.cv-p1-logo-icon {
+  width: 39px;
+  height: 22px;
+  object-fit: contain;
+}
+.cv-p1-logo-text {
+  font-size: 17.9px;
+  color: #333;
+  white-space: nowrap;
+  font-weight: 400;
+}
+
+/* CSAT / Batches badge — top-right teal banner */
+.cv-p1-csat {
+  position: absolute;
+  left: auto;
+  right: 0;
+  top: 84px;
+  width: auto;
+  background: #1f9e95;
+  border-radius: 0 0 0 18px;
+  padding: 11px 22px;
+  color: white;
+  font-size: 15px;
+  font-weight: 700;
+  display: flex;
+  gap: 6px;
+  align-items: center;
+  white-space: nowrap;
+  z-index: 5;
+}
+
+/* Trainer name */
+.cv-p1-name {
+  position: absolute;
+  left: 40px;
+  top: 88px;
+  font-size: 56px;
+  font-weight: 700;
+  color: #222;
+  line-height: 1;
+  letter-spacing: -1px;
+  margin: 0;
+  z-index: 5;
+}
+
+/* Title / tagline */
+.cv-p1-tagline {
+  position: absolute;
+  left: 40px;
+  top: 160px;
+  width: 510px;
+  font-size: 17px;
+  font-weight: 600;
+  color: #333;
+  line-height: 24px;
+  margin: 0;
+}
+
+/* "TRAINER PROFILE" vertical sidebar label */
+.cv-p1-section-label {
+  position: absolute;
+  left: 34px;
+  top: 245px;
+  width: 25px;
+  height: 230px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.cv-p1-section-label span {
+  flex-shrink: 0;
+  flex-grow: 0;
+  transform: rotate(-90deg);
+  white-space: nowrap;
+  font-size: 25px;
+  font-weight: 700;
+  color: #222;
+  line-height: 1;
+  transform-origin: center;
+}
+
+/* Bio paragraphs */
+.cv-p1-bio {
+  position: absolute;
+  left: 86px;
+  top: 245px;
+  width: 470px;
+  height: 220px;
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+  overflow: hidden;
+}
+.cv-p1-bio p {
+  font-size: 14px;
+  line-height: 20px;
+  color: #222;
+  margin: 0;
+  font-weight: 400;
+}
+
+/* Vertical separator line */
+.cv-p1-divider {
+  position: absolute;
+  left: 48px;
+  top: 444px;
+  width: 1px;
+  height: 380px;
+  background: #333;
+  opacity: 0.8;
+}
+
+/* Program section — light blue background */
+.cv-p1-programs-bg {
+  position: absolute;
+  left: 64px;
+  top: 520px;
+  width: 531px;
+  height: 272px;
+  background: #eef1fb;
+  z-index: 1;
+  border-radius: 2px;
+}
+
+/* Program section — content */
+.cv-p1-programs {
+  position: absolute;
+  left: 86px;
+  top: 545px;
+  width: 440px;
+  z-index: 5;
+}
+.cv-p1-programs .cv-section-title {
+  font-size: 24px;
+  font-weight: 800;
+  color: #333;
+  line-height: 1.2;
+  margin: 0 0 14px 0;
+}
+.cv-p1-programs ul {
+  list-style: disc;
+  padding-left: 18px;
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.cv-p1-programs ul li {
+  font-size: 14px;
+  color: #333;
+  line-height: 24px;
+  font-weight: 400;
+  margin-bottom: 0;
+}
+
+/* ═══════════════════════════════════════════════════════════
+   PAGE 2  (A4 - 11)
+   ═══════════════════════════════════════════════════════════ */
+
+/* Top light-blue background — bleeds above page top */
+.cv-p2-top-bg {
+  position: absolute;
+  left: 63px;
+  top: -21px;
+  width: 542px;
+  height: 335px;
+  background: var(--cv-section-bg);
+  border-radius: 2px;
+}
+
+/* Programs (continued) list */
+.cv-p2-programs {
+  position: absolute;
+  left: 89px;
+  top: 48px;
+  width: 366px;
+}
+.cv-p2-programs ul {
+  list-style: disc;
+  padding-left: 18px;
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.cv-p2-programs ul li {
+  font-size: 12px;
+  color: #333;
+  line-height: 19px;
+  font-weight: 400;
+}
+
+/* Strengths — right-side background panel */
+.cv-p2-strengths-bg {
+  position: absolute;
+  left: 355px;
+  top: 327px;
+  width: 255px;
+  height: 515px;
+  background: var(--cv-section-bg);
+  border-radius: 2px;
+}
+
+/* Training Delivered */
+.cv-p2-training {
+  position: absolute;
+  left: 41px;
+  top: 384px;
+  width: 232px;
+  display: flex;
+  flex-direction: column;
+  gap: 28px;
+}
+.cv-p2-training .cv-section-title {
+  font-size: 20px;
+  font-weight: 700;
+  color: #333;
+  line-height: 33.75px;
+  text-transform: uppercase;
+  margin: 0;
+}
+.cv-p2-training ul {
+  list-style: disc;
+  padding-left: 18px;
+  margin: 0;
+}
+.cv-p2-training ul li {
+  font-size: 12px;
+  color: #333;
+  line-height: 19px;
+  font-weight: 500;
+}
+
+/* Strengths */
+.cv-p2-strengths {
+  position: absolute;
+  left: 389px;
+  top: 357px;
+  width: 177px;
+  display: flex;
+  flex-direction: column;
+  gap: 24px;
+}
+.cv-p2-strengths .cv-section-title {
+  font-size: 20px;
+  font-weight: 700;
+  color: #333;
+  line-height: 33.75px;
+  margin: 0;
+}
+.cv-p2-strengths ul {
+  list-style: disc;
+  padding-left: 18px;
+  margin: 0;
+}
+.cv-p2-strengths ul li {
+  font-size: 12px;
+  color: #333;
+  line-height: 19px;
+  font-weight: 500;
+}
+
+/* ═══════════════════════════════════════════════════════════
+   PAGE 3  (A4 - 12)
+   ═══════════════════════════════════════════════════════════ */
+
+/* Professional Experience */
+.cv-p3-experience {
+  position: absolute;
+  left: 41px;
+  top: 73px;
+  width: 488px;
+  display: flex;
+  flex-direction: column;
+  gap: 28px;
+}
+.cv-p3-experience .cv-section-title {
+  font-size: 20px;
+  font-weight: 700;
+  color: #333;
+  line-height: 33.75px;
+  margin: 0;
+}
+.cv-p3-experience ul {
+  list-style: disc;
+  padding-left: 18px;
+  margin: 0;
+}
+.cv-p3-experience ul li {
+  font-size: 12px;
+  color: #333;
+  line-height: 19px;
+  font-weight: 400;
+}
+
+/* Honors & Awards — light-blue background */
+.cv-p3-awards-bg {
+  position: absolute;
+  left: 41px;
+  top: 374px;
+  width: 568px;
+  height: 292px;
+  background: var(--cv-section-bg);
+  border-radius: 2px;
+}
+
+/* Honors & Awards content */
+.cv-p3-awards {
+  position: absolute;
+  left: 91px;
+  top: 419px;
+  width: 446px;
+  display: flex;
+  flex-direction: column;
+  gap: 28px;
+}
+.cv-p3-awards .cv-section-title {
+  font-size: 20px;
+  font-weight: 700;
+  color: #333;
+  line-height: 33.75px;
+  margin: 0;
+}
+.cv-p3-awards ul {
+  list-style: disc;
+  padding-left: 18px;
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.cv-p3-awards ul li {
+  font-size: 12px;
+  color: #333;
+  line-height: 16px;
+  font-style: italic;
+  font-weight: 400;
+}
+
+/* "Get in touch with us" call-to-action */
+.cv-p3-cta {
+  position: absolute;
+  left: 41px;
+  top: 765px;
+  font-size: 12px;
+  font-weight: 700;
+  color: #333;
+  margin: 0;
+}
+
+/* Decorative blob — bottom-right, bleeds off the corner */
+.cv-p3-deco {
+  position: absolute;
+  right: -54px;
+  bottom: -46px;
+  width: 103px;
+  height: 205px;
+  pointer-events: none;
+  transform: rotate(180deg);
+  z-index: 2;
+}
+
+/* ═══════════════════════════════════════════════════════════
+   SHARED — Footer  (teal bar at y=792)
+   ═══════════════════════════════════════════════════════════ */
+.cv-footer {
+  position: absolute;
+  bottom: 0;
+  left: 0;
+  width: 595px;
+  height: 36px;
+  background: #1f9e95;
+  border-radius: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0 24px;
+  z-index: 50;
+}
+.cv-p1-footer,
+.cv-p2-footer,
+.cv-p3-footer {
+  left: 0;
+  width: 595px;
+  padding: 0 24px;
+}
+
+.cv-footer-inner {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0;
+  width: 100%;
+}
+.cv-footer-contacts {
+  display: flex;
+  align-items: center;
+  gap: 24px;
+  flex: 0 0 auto;
+}
+.cv-footer-item {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 12px;
+  font-weight: 500;
+  color: white;
+  white-space: nowrap;
+}
+.cv-footer-item img {
+  width: 13px;
+  height: 13px;
+  object-fit: contain;
+  filter: brightness(10);
+}
+.cv-footer-item svg,
+.cv-footer-website svg {
+  flex-shrink: 0;
+}
+.cv-footer-website {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+.cv-footer-website img {
+  width: 13px;
+  height: 13px;
+  object-fit: contain;
+  filter: brightness(10);
+}
+.cv-footer-website a,
+.cv-footer-website span {
+  font-size: 12px;
+  font-weight: 500;
+  color: white;
+  text-decoration: underline;
+  white-space: nowrap;
+}
+
+/* ═══════════════════════════════════════════════════════════
+   PRINT STYLES
+   ═══════════════════════════════════════════════════════════ */
+@media print {
+  @page {
+    size: A4 portrait;
+    margin: 0;
+  }
+
+  html, body {
+    margin: 0;
+    padding: 0;
+    background: white;
+  }
+
+  .builder-form-panel,
+  .builder-header,
+  .preview-panel-header {
+    display: none !important;
+  }
+
+  .builder-layout {
+    display: block !important;
+    height: auto !important;
+  }
+
+  .builder-preview-panel {
+    width: 100% !important;
+    height: auto !important;
+    overflow: visible !important;
+    padding: 0 !important;
+    background: white !important;
+  }
+
+  .cv-preview-scaler {
+    transform: none !important;
+    transform-origin: unset !important;
+  }
+
+  .cv-preview-wrapper {
+    display: block !important;
+    padding: 0 !important;
+    background: white !important;
+    gap: 0 !important;
+    overflow: visible !important;
+  }
+
+  .cv-page {
+    box-shadow: none !important;
+    page-break-after: always;
+    break-after: page;
+    margin: 0 !important;
+    width: 210mm !important;
+    height: 297mm !important;
+  }
+
+  .cv-page:last-child {
+    page-break-after: auto;
+    break-after: auto;
+  }
+}
