@@ -125,21 +125,44 @@ async def maybe_google_drive_upload_after_pdf(job: TrainerProfileJob, db: Sessio
     await _maybe_google_drive_upload_after_pdf(job, db)
 
 
-def _crm_record_id_for_pdf_attachment(job: TrainerProfileJob) -> str:
-    """Parent multi-trainer jobs store the trainer row id in parsed_inputs."""
+def _resolve_zoho_pdf_attachment_module_and_record(job: TrainerProfileJob) -> tuple[str, str] | None:
+    """
+    Choose CRM module + record id for the Attachments API.
+
+    Parent flow: by default attach to the parent row (webhook record) using ``parent_module`` / env.
+    Set ``ZOHO_ATTACH_PDF_TO_PARENT_RECORD=false`` to attach on the Trainers row instead.
+    """
+    settings = get_settings()
     pi = job.parsed_inputs if isinstance(job.parsed_inputs, dict) else {}
+
+    parent_rid = str(pi.get("parent_record_id") or "").strip()
+    parent_mod_stored = str(pi.get("parent_module") or "").strip()
+    parent_mod_cfg = (settings.zoho_parent_module_api_name or "").strip()
+
+    if settings.zoho_attach_pdf_to_parent_record and parent_rid:
+        mod = (parent_mod_stored or parent_mod_cfg).strip()
+        if mod:
+            return mod, parent_rid
+        logger.warning(
+            "ZOHO_ATTACH_PDF parent_record_id=%s but parent module name missing; "
+            "falling back to trainer row if available (set ZOHO_PARENT_MODULE_API_NAME)",
+            parent_rid,
+        )
+
     tid = pi.get("trainer_record_id")
     if tid is not None and str(tid).strip():
-        return str(tid).strip()
-    return (job.zoho_record_id or "").strip()
+        mod = (settings.zoho_trainer_pdf_attach_module_api_name or "").strip() or (
+            settings.zoho_trainer_module_api_name or "Trainers"
+        ).strip()
+        return mod, str(tid).strip()
 
-
-def _attach_module_api_name() -> str:
-    s = get_settings()
-    v = (s.zoho_trainer_pdf_attach_module_api_name or "").strip()
-    if v:
-        return v
-    return (s.zoho_trainer_module_api_name or "Trainers").strip()
+    rid = (job.zoho_record_id or "").strip()
+    if not rid:
+        return None
+    mod = (settings.zoho_trainer_pdf_attach_module_api_name or "").strip() or (
+        settings.zoho_module_api_name or settings.zoho_trainer_module_api_name or "Trainers"
+    ).strip()
+    return mod, rid
 
 
 async def _maybe_zoho_attach_trainer_pdf_link(
@@ -147,7 +170,8 @@ async def _maybe_zoho_attach_trainer_pdf_link(
 ) -> None:
     """
     If ``ZOHO_ATTACH_TRAINER_PDF_LINK=true`` and OAuth is configured, POST the public ``/pdfs/{job_id}.pdf``
-    URL to Zoho CRM v8 Attachments on the trainer (or legacy) record.
+    URL to Zoho CRM v8 Attachments. Target record: parent (webhook) vs trainer — see
+    ``ZOHO_ATTACH_PDF_TO_PARENT_RECORD`` and ``_resolve_zoho_pdf_attachment_module_and_record``.
     """
     settings = get_settings()
     if not settings.zoho_attach_trainer_pdf_link:
@@ -169,11 +193,11 @@ async def _maybe_zoho_attach_trainer_pdf_link(
         return
     base = (public_base_url or settings.public_base_url or "http://127.0.0.1:8080").rstrip("/")
     public_pdf_url = f"{base}/pdfs/{job.id}.pdf"
-    crm_id = _crm_record_id_for_pdf_attachment(job)
-    if not crm_id:
-        logger.warning("ZOHO_ATTACH_PDF_SKIP no_crm_record_id job_id=%s", job.id)
+    resolved = _resolve_zoho_pdf_attachment_module_and_record(job)
+    if not resolved:
+        logger.warning("ZOHO_ATTACH_PDF_SKIP could_not_resolve_module_record job_id=%s", job.id)
         return
-    mod = _attach_module_api_name()
+    mod, crm_id = resolved
     unique = _job_trainer_unique_for_drive(job)
     title = f"Trainer_Profile_{unique}"[:255]
 
@@ -186,7 +210,16 @@ async def _maybe_zoho_attach_trainer_pdf_link(
             public_url=public_pdf_url,
             title=title,
         )
-        logger.info("ZOHO_ATTACH_PDF_OK job_id=%s module=%s crm_record_id=%s", job.id, mod, crm_id)
+        logger.info(
+            "ZOHO_ATTACH_PDF_OK job_id=%s module=%s crm_record_id=%s parent_flow=%s",
+            job.id,
+            mod,
+            crm_id,
+            bool(
+                isinstance(job.parsed_inputs, dict)
+                and str((job.parsed_inputs or {}).get("parent_record_id") or "").strip()
+            ),
+        )
     except Exception as exc:
         err = str(exc)
         logger.exception("ZOHO_ATTACH_PDF_FAILED job_id=%s", job.id)
