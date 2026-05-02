@@ -39,6 +39,17 @@ def _google_drive_oauth_ready(settings: object) -> bool:
     )
 
 
+def _google_drive_oauth_missing_env_names(settings: object) -> list[str]:
+    out: list[str] = []
+    if not (getattr(settings, "google_client_id", None) or "").strip():
+        out.append("GOOGLE_CLIENT_ID")
+    if not (getattr(settings, "google_client_secret", None) or "").strip():
+        out.append("GOOGLE_CLIENT_SECRET")
+    if not (getattr(settings, "google_refresh_token", None) or "").strip():
+        out.append("GOOGLE_REFRESH_TOKEN")
+    return out
+
+
 def _job_trainer_unique_for_drive(job: TrainerProfileJob) -> str:
     parsed = job.parsed_inputs if isinstance(job.parsed_inputs, dict) else {}
     return (str(parsed.get("trainer_unique_code") or "").strip() or "trainer")[:120]
@@ -55,14 +66,20 @@ def _job_drive_course_name(job: TrainerProfileJob) -> str:
 
 async def _maybe_google_drive_upload_after_pdf(job: TrainerProfileJob, db: Session) -> None:
     """
-    When GOOGLE_DRIVE_AUTO_UPLOAD=true and OAuth env is set, upload the saved PDF and
-    store `google_drive_pdf_url` / `google_drive_upload_error` on `parsed_inputs`.
+    When `google_drive_auto_upload` is true (default) and Google OAuth env vars are set,
+    upload the saved PDF and store `google_drive_pdf_url` / `google_drive_upload_error` on `parsed_inputs`.
+    Set GOOGLE_DRIVE_AUTO_UPLOAD=false to disable.
     """
     settings = get_settings()
     if not settings.google_drive_auto_upload:
+        logger.info("GEN_DRIVE_SKIP disabled=1 reason=GOOGLE_DRIVE_AUTO_UPLOAD=false")
         return
     if not _google_drive_oauth_ready(settings):
-        logger.info("GEN_DRIVE_SKIP oauth_not_configured auto_upload=1")
+        missing = _google_drive_oauth_missing_env_names(settings)
+        logger.info(
+            "GEN_DRIVE_SKIP oauth_incomplete missing_env=%s (set all three on the server for uploads)",
+            ",".join(missing),
+        )
         return
     path = job_pdf_abs_path(job.id)
     if not path.is_file() or path.stat().st_size <= 0:
@@ -70,6 +87,12 @@ async def _maybe_google_drive_upload_after_pdf(job: TrainerProfileJob, db: Sessi
         return
     drive_link: str | None = None
     drive_err: str | None = None
+    logger.info(
+        "GEN_DRIVE_START job_id=%s unique=%s course_folder=%s",
+        job.id,
+        _job_trainer_unique_for_drive(job),
+        _job_drive_course_name(job),
+    )
     try:
         result = await asyncio.to_thread(
             upload_trainer_profile_pdf,

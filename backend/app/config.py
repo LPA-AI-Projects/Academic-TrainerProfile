@@ -216,8 +216,8 @@ class Settings(BaseSettings):
     google_refresh_token: str | None = None
     # Optional parent folder in Drive; if empty, My Drive root is used.
     google_drive_folder_id: str | None = None
-    # After PDF is saved, upload to Drive and include `google_drive_pdf_url` in POST /generate response.
-    google_drive_auto_upload: bool = False
+    # After PDF is saved, upload to Drive when OAuth env vars are set. Set to false to disable uploads.
+    google_drive_auto_upload: bool = True
     google_drive_fallback_course_name: str = "Course"
 
     @field_validator(
