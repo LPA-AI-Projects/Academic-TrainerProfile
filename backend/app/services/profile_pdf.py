@@ -8,14 +8,16 @@ from ..utils.logger import get_logger
 logger = get_logger(__name__)
 
 
-def render_trainer_profile_pdf(*, public_base_url: str, job_id: str) -> bytes:
+async def render_trainer_profile_pdf(*, public_base_url: str, job_id: str) -> bytes:
     """
     Render the static CV builder page to a PDF using headless Chromium.
 
     This relies on the front-end `trainer-profile/js/app.js` loading the job and filling the layout.
+
+    Must use the **async** Playwright API when called from FastAPI (async event loop).
     """
     try:
-        from playwright.sync_api import sync_playwright  # type: ignore
+        from playwright.async_api import async_playwright  # type: ignore
     except Exception as exc:  # pragma: no cover
         raise RuntimeError(
             "Playwright is not installed. Install dependencies and run: "
@@ -28,11 +30,11 @@ def render_trainer_profile_pdf(*, public_base_url: str, job_id: str) -> bytes:
     logger.info("PDF_RENDER_START job_id=%s url=%s", job_id, url)
     t0 = time.perf_counter()
 
-    with sync_playwright() as p:
-        browser = p.chromium.launch(headless=True)
+    async with async_playwright() as p:
+        browser = await p.chromium.launch(headless=True)
         try:
-            page = browser.new_page()
-            page.set_viewport_size({"width": 595, "height": 842})
+            page = await browser.new_page()
+            await page.set_viewport_size({"width": 595, "height": 842})
             page.on(
                 "console",
                 lambda msg: logger.info(
@@ -56,14 +58,14 @@ def render_trainer_profile_pdf(*, public_base_url: str, job_id: str) -> bytes:
                     req.failure,
                 ),
             )
-            page.emulate_media(media="print")
+            await page.emulate_media(media="print")
             # `networkidle` can hang on local dev servers; `load` is more reliable here.
-            page.goto(url, wait_until="load", timeout=120_000)
+            await page.goto(url, wait_until="load", timeout=120_000)
 
             # Wait for rendered content. Support both:
             # 1) dynamic builder template selectors, and
             # 2) fixed HTML templates without those specific ids/classes.
-            page.wait_for_function(
+            await page.wait_for_function(
                 """
                 () => {
                   const hasPages = document.querySelectorAll('.cv-page, .page').length >= 1;
@@ -83,9 +85,9 @@ def render_trainer_profile_pdf(*, public_base_url: str, job_id: str) -> bytes:
                 """,
                 timeout=120_000,
             )
-            page.wait_for_timeout(800)
+            await page.wait_for_timeout(800)
 
-            pdf = page.pdf(
+            pdf = await page.pdf(
                 format="A4",
                 print_background=True,
                 prefer_css_page_size=True,
@@ -99,4 +101,4 @@ def render_trainer_profile_pdf(*, public_base_url: str, job_id: str) -> bytes:
             )
             return pdf
         finally:
-            browser.close()
+            await browser.close()

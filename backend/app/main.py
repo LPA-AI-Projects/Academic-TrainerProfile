@@ -400,7 +400,7 @@ async def generate_profile(request: Request, db: Session = Depends(get_db)):
         sorted(form_data.keys()),
     )
 
-    jobs = generate_and_store_profile(
+    jobs = await generate_and_store_profile(
         payload,
         db,
         public_base_url=_public_base_url(request),
@@ -425,7 +425,7 @@ async def generate_profile(request: Request, db: Session = Depends(get_db)):
     dependencies=[optional_api_key],
     summary="Refine existing profile using feedback",
 )
-def refine_profile(payload: RefineProfileRequest, request: Request, db: Session = Depends(get_db)):
+async def refine_profile(payload: RefineProfileRequest, request: Request, db: Session = Depends(get_db)):
     """
     Refine profile narrative from feedback.
     Lookup: provide `unique_code` (Trainer_Unique_code) and optionally `zoho_record_id` (parent record).
@@ -488,7 +488,7 @@ def refine_profile(payload: RefineProfileRequest, request: Request, db: Session 
 
     # Rebuild PDF so exported file reflects refined profile text.
     try:
-        ensure_job_pdf_on_disk(db=db, job=job, public_base_url=_public_base_url(request))
+        await ensure_job_pdf_on_disk(db=db, job=job, public_base_url=_public_base_url(request))
     except Exception as exc:
         job.pdf_generation_error = str(exc)
         db.add(job)
@@ -553,7 +553,7 @@ def _parse_outline_paths_form(text: str | None) -> list[str]:
     dependencies=[optional_api_key],
     summary="Generate profile (multipart — Postman-friendly uploads)",
 )
-def generate_profile_form(
+async def generate_profile_form(
     request: Request,
     db: Session = Depends(get_db),
     zoho_record_id: str = Form(...),
@@ -643,7 +643,7 @@ def generate_profile_form(
     )
 
     try:
-        jobs = generate_and_store_profile(
+        jobs = await generate_and_store_profile(
             payload,
             db,
             public_base_url=_public_base_url(request),
@@ -721,7 +721,7 @@ def get_profile_job(profile_ref: str, request: Request, db: Session = Depends(ge
 
 @app.get("/api/v1/profiles/{job_id}/pdf", dependencies=[optional_api_key])
 @app.get("/api/v2/profiles/{job_id}/pdf", dependencies=[optional_api_key])
-def download_profile_pdf(job_id: str, request: Request, db: Session = Depends(get_db)):
+async def download_profile_pdf(job_id: str, request: Request, db: Session = Depends(get_db)):
     logger.info("API_PDF_REQUEST job_id=%s", job_id)
     job = db.get(TrainerProfileJob, job_id)
     if not job:
@@ -731,7 +731,7 @@ def download_profile_pdf(job_id: str, request: Request, db: Session = Depends(ge
         logger.warning("API_PDF_NOT_READY job_id=%s status=%s", job_id, job.status)
         raise HTTPException(status_code=400, detail="Job is not ready for PDF export")
 
-    path = ensure_job_pdf_on_disk(db=db, job=job, public_base_url=_public_base_url(request))
+    path = await ensure_job_pdf_on_disk(db=db, job=job, public_base_url=_public_base_url(request))
     logger.info("API_PDF_READY job_id=%s path=%s", job_id, str(path))
     filename = f"trainer_profile_{job_id}.pdf"
     return FileResponse(
@@ -787,7 +787,7 @@ def save_profile_feedback(job_id: str, payload: ProfileFeedbackRequest, db: Sess
     response_model=DriveUploadResponse,
     dependencies=[optional_api_key],
 )
-def upload_profile_pdf_to_drive(payload: DriveUploadRequest, request: Request, db: Session = Depends(get_db)):
+async def upload_profile_pdf_to_drive(payload: DriveUploadRequest, request: Request, db: Session = Depends(get_db)):
     """
     Upload completed profile PDF into Drive:
     ai_automation/trainer_profile/{course_name}/{unique_code}_{course_name}.pdf
@@ -810,7 +810,7 @@ def upload_profile_pdf_to_drive(payload: DriveUploadRequest, request: Request, d
         resolved_unique,
     )
 
-    pdf_path = ensure_job_pdf_on_disk(db=db, job=job, public_base_url=_public_base_url(request))
+    pdf_path = await ensure_job_pdf_on_disk(db=db, job=job, public_base_url=_public_base_url(request))
     pdf_bytes = Path(pdf_path).read_bytes()
     try:
         result = upload_trainer_profile_pdf(

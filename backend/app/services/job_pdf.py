@@ -30,7 +30,7 @@ def job_pdf_abs_path(job_id: str) -> Path:
     return root / job_pdf_filename(job_id)
 
 
-def ensure_job_pdf_on_disk(
+async def ensure_job_pdf_on_disk(
     *,
     db: Session,
     job: TrainerProfileJob,
@@ -49,7 +49,7 @@ def ensure_job_pdf_on_disk(
         return target
 
     logger.info("Generating PDF file job_id=%s path=%s", job.id, str(target))
-    pdf_bytes = render_trainer_profile_pdf(public_base_url=public_base_url, job_id=job.id)
+    pdf_bytes = await render_trainer_profile_pdf(public_base_url=public_base_url, job_id=job.id)
 
     tmp = target.with_suffix(target.suffix + ".tmp")
     tmp.write_bytes(pdf_bytes)

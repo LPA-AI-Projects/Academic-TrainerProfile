@@ -213,7 +213,7 @@ def normalize_profile_payload(raw: dict) -> dict:
     return normalized
 
 
-def _complete_job_after_prompt(
+async def _complete_job_after_prompt(
     job: TrainerProfileJob,
     db: Session,
     payload: GenerateProfileRequest,
@@ -260,7 +260,7 @@ def _complete_job_after_prompt(
         public_base = (public_base_url or settings.public_base_url or "http://127.0.0.1:8080").rstrip("/")
         try:
             t_pdf = time.perf_counter()
-            pdf_path = ensure_job_pdf_on_disk(db=db, job=job, public_base_url=public_base)
+            pdf_path = await ensure_job_pdf_on_disk(db=db, job=job, public_base_url=public_base)
             logger.info(
                 "GEN_PDF_DONE job_id=%s pdf_ms=%.1f pdf_path=%s",
                 job.id,
@@ -289,7 +289,7 @@ def _parent_multi_trainer_enabled(settings: object) -> bool:
     return bool((getattr(settings, "zoho_parent_module_api_name", None) or "").strip())
 
 
-def generate_from_parent_with_trainers(
+async def generate_from_parent_with_trainers(
     payload: GenerateProfileRequest, db: Session, *, public_base_url: str | None = None
 ) -> list[TrainerProfileJob]:
     """
@@ -494,7 +494,7 @@ def generate_from_parent_with_trainers(
                     heading_label,
                 )
 
-                _complete_job_after_prompt(
+                await _complete_job_after_prompt(
                     job,
                     db,
                     payload,
@@ -526,7 +526,7 @@ def generate_from_parent_with_trainers(
                 logger.warning("GEN_TEMP_REMOVE_FAILED path=%s error=%s", outline_path, exc)
 
 
-def generate_and_store_profile(
+async def generate_and_store_profile(
     payload: GenerateProfileRequest, db: Session, *, public_base_url: str | None = None
 ) -> list[TrainerProfileJob]:
     settings = get_settings()
@@ -542,7 +542,7 @@ def generate_and_store_profile(
             "GEN_ROUTE parent_multi_trainer_flow=1 zoho_record_id=%s (parent record id)",
             payload.zoho_record_id,
         )
-        return generate_from_parent_with_trainers(payload, db, public_base_url=public_base_url)
+        return await generate_from_parent_with_trainers(payload, db, public_base_url=public_base_url)
 
     logger.info(
         "GEN_ROUTE legacy_single_record_flow=1 zoho_record_id=%s zoho_module=%s",
@@ -670,5 +670,5 @@ def generate_and_store_profile(
     db.refresh(job)
     logger.info("GEN_JOB_CREATED job_id=%s status=%s cv_path=%s", job.id, job.status, job.cv_path)
 
-    job = _complete_job_after_prompt(job, db, payload, public_base_url, prompt, t0, trainer_display_name=None)
+    job = await _complete_job_after_prompt(job, db, payload, public_base_url, prompt, t0, trainer_display_name=None)
     return [job]
