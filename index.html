@@ -125,6 +125,7 @@
       gap: 20px;
       align-items: center;
       line-height: 14px;
+      z-index: 6;
     }
 
     .footer img {
@@ -133,6 +134,14 @@
       vertical-align: middle;
       margin-right: 4px;
     }
+
+    /* Fixed A4 canvas (842pt tall); lists must not run under the footer bar */
+    .p1-programs-clip { max-height: 308px; overflow: hidden; }
+    .p2-programs-clip { max-height: 250px; overflow: hidden; }
+    .p2-training-clip { max-height: 400px; overflow: hidden; }
+    .p2-strengths-clip { max-height: 428px; overflow: hidden; }
+    .p3-experience-clip { max-height: 308px; overflow: hidden; }
+    .p3-awards-clip { max-height: 252px; overflow: hidden; }
 
     h1, h2, p { margin: 0; }
 
@@ -220,7 +229,7 @@
 
     <div class="light" style="left:64px;top:452px;width:531px;height:390px;"></div>
 
-    <div id="cv-p1-programs-box" style="position:absolute;left:86px;top:470px;width:387px;">
+    <div id="cv-p1-programs-box" class="p1-programs-clip" style="position:absolute;left:86px;top:470px;width:387px;">
       <h2 class="title">PROGRAM TRAINED</h2>
       <ul id="cv-p1-programs-ul" class="text12"
           style="margin-top:8px;display:grid;gap:2px;line-height:17px;">
@@ -239,9 +248,14 @@
   <!-- ═══════ PAGE 2 ═══════ -->
   <section class="page" id="page2">
     <div class="canvas">
+    <div class="lp-brand" aria-label="Learners Point">
+      <img src="./images/1.svg" alt="" />
+      <span class="lp-brand-text">Learners Point</span>
+    </div>
+
     <div class="light" style="left:63px;top:-21px;width:542px;height:335px;"></div>
 
-    <div id="cv-p2-programs-box" style="position:absolute;left:89px;top:48px;width:366px;">
+    <div id="cv-p2-programs-box" class="p2-programs-clip" style="position:absolute;left:89px;top:48px;width:366px;">
       <ul id="cv-p2-programs-ul" class="text12"
           style="display:grid;gap:2px;line-height:17px;">
         <!-- filled dynamically -->
@@ -250,7 +264,7 @@
 
     <div class="light" style="left:355px;top:327px;width:255px;height:515px;"></div>
 
-    <div id="cv-p2-training-box" style="position:absolute;left:41px;top:384px;width:232px;">
+    <div id="cv-p2-training-box" class="p2-training-clip" style="position:absolute;left:41px;top:384px;width:232px;">
       <h2 class="title">TRAINING DELIVERED</h2>
       <ul id="cv-p2-training-ul" class="text12"
           style="display:grid;gap:4px;margin-top:10px;">
@@ -258,7 +272,7 @@
       </ul>
     </div>
 
-    <div id="cv-p2-strengths-box" style="position:absolute;left:389px;top:357px;width:177px;">
+    <div id="cv-p2-strengths-box" class="p2-strengths-clip" style="position:absolute;left:389px;top:357px;width:177px;">
       <h2 class="title">STRENGTHS</h2>
       <ul id="cv-p2-strengths-ul" class="text12"
           style="display:grid;gap:4px;margin-top:8px;">
@@ -277,7 +291,12 @@
   <!-- ═══════ PAGE 3 ═══════ -->
   <section class="page" id="page3">
     <div class="canvas">
-    <div style="position:absolute;left:41px;top:49px;width:488px;">
+    <div class="lp-brand" aria-label="Learners Point">
+      <img src="./images/1.svg" alt="" />
+      <span class="lp-brand-text">Learners Point</span>
+    </div>
+
+    <div id="cv-p3-experience-box" class="p3-experience-clip" style="position:absolute;left:41px;top:49px;width:488px;">
       <h2 class="title">PROFESSIONAL EXPERIENCE</h2>
       <ul id="cv-p3-experience-ul" class="text12"
           style="display:grid;gap:2px;margin-top:8px;line-height:15px;">
@@ -287,7 +306,7 @@
 
     <div class="light" style="left:41px;top:374px;width:568px;height:292px;"></div>
 
-    <div style="position:absolute;left:91px;top:419px;width:446px;">
+    <div id="cv-p3-awards-box" class="p3-awards-clip" style="position:absolute;left:91px;top:419px;width:446px;">
       <h2 class="title">CERTIFICATIONS, HONORS & AWARDS</h2>
       <ul id="cv-p3-awards-ul" class="text12"
           style="font-style:italic;display:grid;gap:8px;margin-top:10px;line-height:14px;">
@@ -320,6 +339,14 @@
       const clean = v => String(v ?? '').replace(/\s+/g,' ').trim();
       const uniq  = arr => Array.from(new Set((arr || []).map(x => String(x || '').trim()).filter(Boolean)));
       const topItems = (arr, n) => uniq(arr).slice(0, n);
+
+      /** Keep brochure columns within print-safe line lengths (matches backend caps). */
+      const clampLine = (s, maxLen) => {
+        const t = clean(s);
+        if (!t) return '';
+        if (t.length <= maxLen) return t;
+        return `${t.slice(0, maxLen - 1).trimEnd()}…`;
+      };
 
       const setText = (id, val) => {
         const el = document.getElementById(id);
@@ -367,8 +394,8 @@
         removeLastUntilFit('cv-p2-programs-ul', 'cv-p2-programs-box');
         removeLastUntilFit('cv-p2-training-ul', 'cv-p2-training-box');
         removeLastUntilFit('cv-p2-strengths-ul', 'cv-p2-strengths-box');
-        removeLastUntilFit('cv-p3-experience-ul', 'page3');
-        removeLastUntilFit('cv-p3-awards-ul', 'page3');
+        removeLastUntilFit('cv-p3-experience-ul', 'cv-p3-experience-box');
+        removeLastUntilFit('cv-p3-awards-ul', 'cv-p3-awards-box');
       };
 
       const applyProfile = (profile) => {
@@ -386,24 +413,37 @@
         setText('cv-bio-1', bio1);
         setText('cv-bio-2', bio2);
 
-        const programs = topItems(p.programs_trained, 26);
+        const programs = topItems(p.programs_trained, 24).map((x) => clampLine(x, 72));
         distributeProgramsAcrossPages(programs);
 
-        setList('cv-p2-training-ul', topItems(p.training_delivered, 16));
+        setList(
+          'cv-p2-training-ul',
+          topItems(p.training_delivered, 14).map((x) => clampLine(x, 58)),
+        );
 
         const skills = p.key_skills?.length ? p.key_skills : p.core_competencies;
-        setList('cv-p2-strengths-ul', topItems(skills, 11));
+        setList(
+          'cv-p2-strengths-ul',
+          topItems(skills, 11).map((x) => clampLine(x, 50)),
+        );
 
-        setList('cv-p3-experience-ul', (p.professional_experience || []).map(formatExperience).filter(Boolean));
+        setList(
+          'cv-p3-experience-ul',
+          (p.professional_experience || [])
+            .map(formatExperience)
+            .filter(Boolean)
+            .map((x) => clampLine(x, 96)),
+        );
 
         const awards = [
           ...(p.certificates || []),
           ...(p.awards_and_recognitions || [])
         ].filter(x => !/\b(master|bachelor|ph\.?d|doctorate|diploma|b\.?sc|m\.?sc|mba)\b/i.test(x));
-        setList('cv-p3-awards-ul', topItems(awards, 6));
+        setList('cv-p3-awards-ul', topItems(awards, 6).map((x) => clampLine(x, 70)));
 
         runOverflowCleaner();
         setTimeout(runOverflowCleaner, 150);
+        setTimeout(runOverflowCleaner, 400);
       };
 
       const loadJob = async () => {

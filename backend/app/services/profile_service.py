@@ -324,6 +324,20 @@ def _title_case(text: str) -> str:
     return " ".join(w[:1].upper() + w[1:].lower() for w in text.split() if w)
 
 
+def _truncate_list_line(s: str, max_len: int) -> str:
+    t = str(s or "").strip()
+    if not t:
+        return ""
+    if len(t) <= max_len:
+        return t
+    cut = t[: max_len - 1].rstrip(" ,;–-|")
+    return cut + "…"
+
+
+def _truncate_list_strings(items: list[str], max_len: int) -> list[str]:
+    return [x for x in (_truncate_list_line(x, max_len) for x in items) if x]
+
+
 def _derive_program_suggestions(raw: dict) -> list[str]:
     seeds = _dedupe_list(
         _as_string_list(raw.get("professional_titles"))
@@ -346,7 +360,7 @@ def _derive_program_suggestions(raw: dict) -> list[str]:
     return _dedupe_list(suggestions)
 
 
-def _ensure_programs_count(raw: dict, programs: list[str], min_items: int = 20, max_items: int = 26) -> list[str]:
+def _ensure_programs_count(raw: dict, programs: list[str], min_items: int = 18, max_items: int = 24) -> list[str]:
     out = _compact_list(programs, max_items=max_items)
     if len(out) >= min_items:
         return out
@@ -410,15 +424,24 @@ def normalize_profile_payload(raw: dict) -> dict:
     batches = min(20, max(10, batches))
 
     professional_titles = _dedupe_list(_as_string_list(raw.get("professional_titles")))
-    programs_trained = _ensure_programs_count(
-        raw,
-        _dedupe_list(_as_string_list(raw.get("programs_trained"))),
-        min_items=20,
-        max_items=26,
+    programs_trained = _truncate_list_strings(
+        _ensure_programs_count(
+            raw,
+            _dedupe_list(_as_string_list(raw.get("programs_trained"))),
+            min_items=18,
+            max_items=24,
+        ),
+        72,
     )
-    training_delivered = _compact_list(_as_string_list(raw.get("training_delivered")), max_items=16)
-    professional_experience = _dedupe_list(_as_string_list(raw.get("professional_experience")))
-    key_skills = _ensure_strengths_count(raw, min_items=10, max_items=11)
+    training_delivered = _truncate_list_strings(
+        _compact_list(_as_string_list(raw.get("training_delivered")), max_items=14),
+        58,
+    )
+    professional_experience = _truncate_list_strings(
+        _dedupe_list(_as_string_list(raw.get("professional_experience"))),
+        96,
+    )
+    key_skills = _truncate_list_strings(_ensure_strengths_count(raw, min_items=10, max_items=11), 50)
     awards_and_recognitions = _compact_list(_as_string_list(raw.get("awards_and_recognitions")), max_items=6)
     certificates = _compact_list(_as_string_list(raw.get("certificates")), max_items=6)
 
@@ -446,7 +469,10 @@ def normalize_profile_payload(raw: dict) -> dict:
         "key_skills": key_skills,
     }
     if not normalized["training_delivered"]:
-        normalized["training_delivered"] = _compact_list(_as_string_list(raw.get("board_experience")), max_items=16)
+        normalized["training_delivered"] = _truncate_list_strings(
+            _compact_list(_as_string_list(raw.get("board_experience")), max_items=14),
+            58,
+        )
     return normalized
 
 
