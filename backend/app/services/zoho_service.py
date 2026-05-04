@@ -603,3 +603,113 @@ def attach_crm_v8_attachment_link(
         out = {"raw": (resp.text or "")[:500]}
     logger.info("ZOHO_CRM_ATTACH_LINK_OK module=%s record_id=%s", mod, rid)
     return out if isinstance(out, dict) else {"data": out}
+
+
+def list_crm_record_attachments(*, module_api_name: str, crm_record_id: str) -> list[dict]:
+    """
+    GET ``/crm/v8/{module}/{record_id}/Attachments`` — used to pick the next ``{TrainerCode}_vN`` attachment title.
+
+    See: https://www.zoho.com/crm/developer/docs/api/v8/get-attachments.html
+    """
+    try:
+        import requests
+    except ModuleNotFoundError as exc:
+        raise RuntimeError(
+            "Missing dependency 'requests'. Install backend requirements first."
+        ) from exc
+
+    from urllib.parse import quote
+
+    mod = (module_api_name or "").strip().strip("/")
+    rid = (crm_record_id or "").strip()
+    if not mod or not rid:
+        raise ValueError("module_api_name and crm_record_id are required")
+
+    token = _get_access_token()
+    base = _crm_api_base()
+    path = f"{base}/crm/v8/{quote(mod, safe='')}/{quote(rid, safe='')}/Attachments"
+    headers = {"Authorization": f"Zoho-oauthtoken {token}"}
+    params = {"fields": "id,File_Name,Created_Time"}
+    logger.info("ZOHO_CRM_ATTACH_LIST_START module=%s record_id=%s", mod, rid)
+    resp = requests.get(path, headers=headers, params=params, timeout=60)
+    if resp.status_code == 401 and _can_use_refresh_token():
+        logger.warning("Zoho CRM list attachments got 401; refreshing token once record_id=%s", rid)
+        _invalidate_token_cache()
+        token = _get_access_token(force_refresh=True)
+        headers = {"Authorization": f"Zoho-oauthtoken {token}"}
+        resp = requests.get(path, headers=headers, params=params, timeout=60)
+    if not resp.ok:
+        logger.error(
+            "ZOHO_CRM_ATTACH_LIST_FAILED module=%s record_id=%s status=%s body=%s",
+            mod,
+            rid,
+            resp.status_code,
+            (resp.text or "")[:2000],
+        )
+    resp.raise_for_status()
+    try:
+        body = resp.json() if resp.content else {}
+    except Exception:
+        return []
+    data = body.get("data") if isinstance(body, dict) else None
+    if isinstance(data, list):
+        return [d for d in data if isinstance(d, dict)]
+    return []
+
+
+def delete_crm_record_attachment(
+    *,
+    module_api_name: str,
+    crm_record_id: str,
+    attachment_id: str,
+) -> dict:
+    """
+    DELETE ``/crm/v8/{module}/{record_id}/Attachments/{attachment_id}``.
+
+    See: https://www.zoho.com/crm/developer/docs/api/v8/delete-attachments.html
+    """
+    try:
+        import requests
+    except ModuleNotFoundError as exc:
+        raise RuntimeError(
+            "Missing dependency 'requests'. Install backend requirements first."
+        ) from exc
+
+    from urllib.parse import quote
+
+    mod = (module_api_name or "").strip().strip("/")
+    rid = (crm_record_id or "").strip()
+    aid = (attachment_id or "").strip()
+    if not mod or not rid or not aid:
+        raise ValueError("module_api_name, crm_record_id, and attachment_id are required")
+
+    token = _get_access_token()
+    base = _crm_api_base()
+    path = (
+        f"{base}/crm/v8/{quote(mod, safe='')}/{quote(rid, safe='')}/Attachments/{quote(aid, safe='')}"
+    )
+    headers = {"Authorization": f"Zoho-oauthtoken {token}"}
+    logger.info("ZOHO_CRM_ATTACH_DELETE_START module=%s record_id=%s attachment_id=%s", mod, rid, aid)
+    resp = requests.delete(path, headers=headers, timeout=60)
+    if resp.status_code == 401 and _can_use_refresh_token():
+        logger.warning("Zoho CRM delete attachment got 401; refreshing token once record_id=%s", rid)
+        _invalidate_token_cache()
+        token = _get_access_token(force_refresh=True)
+        headers = {"Authorization": f"Zoho-oauthtoken {token}"}
+        resp = requests.delete(path, headers=headers, timeout=60)
+    if not resp.ok:
+        logger.error(
+            "ZOHO_CRM_ATTACH_DELETE_FAILED module=%s record_id=%s attachment_id=%s status=%s body=%s",
+            mod,
+            rid,
+            aid,
+            resp.status_code,
+            (resp.text or "")[:2000],
+        )
+    resp.raise_for_status()
+    try:
+        out = resp.json() if resp.content else {}
+    except Exception:
+        out = {"raw": (resp.text or "")[:500]}
+    logger.info("ZOHO_CRM_ATTACH_DELETE_OK module=%s record_id=%s attachment_id=%s", mod, rid, aid)
+    return out if isinstance(out, dict) else {"data": out}

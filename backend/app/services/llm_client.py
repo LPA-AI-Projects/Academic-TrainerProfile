@@ -134,6 +134,32 @@ def generate_profile_json(
     return payload, resolved_provider, raw
 
 
+def _stabilize_refined_profile_text(original: str, refined: str) -> str:
+    """
+    Keep refine outputs close to the prior version: no runaway length, same paragraph count when the
+    source had two blocks (split on blank lines).
+    """
+    o = (original or "").strip()
+    r = (refined or "").strip()
+    if not r:
+        return o
+    if not o:
+        return r
+    o_parts = [p.strip() for p in o.split("\n\n") if p.strip()]
+    if len(o_parts) >= 2:
+        r_parts = [p.strip() for p in r.split("\n\n") if p.strip()]
+        if len(r_parts) > 2:
+            r = "\n\n".join(r_parts[:2])
+    max_len = min(12000, max(int(len(o) * 1.12), len(o) + 500))
+    if len(r) > max_len:
+        cut = r[: max_len + 1]
+        if "\n\n" in cut:
+            r = cut.rsplit("\n\n", 1)[0].strip()
+        else:
+            r = cut.rstrip()
+    return r
+
+
 def refine_profile_text(
     *,
     existing_profile_text: str,
@@ -156,14 +182,18 @@ def refine_profile_text(
         resolved_model = settings.openai_model
 
     prompt = (
-        "You are refining a trainer profile summary.\n"
-        "Rewrite ONLY the profile narrative based on feedback.\n"
-        "Do not include headings, JSON, bullets, markdown, or explanations.\n"
+        "You are making a minimal, surgical revision (like a v1 → v1.1 text edit) to an existing trainer profile.\n"
+        "Apply ONLY what the feedback explicitly asks for. Preserve all other wording, facts, and structure unless "
+        "the feedback requires a change.\n"
+        "Do not add new employers, credentials, metrics, or topics not implied by the feedback and the current text.\n"
+        "Keep overall length within ~12% of the current text (do not expand into a long essay).\n"
+        "If the current text uses two paragraphs separated by a blank line, keep exactly two paragraphs in the same order.\n"
+        "Do not include headings, JSON, bullets, markdown, or meta commentary.\n"
         "Return plain text only.\n\n"
-        f"Trainer name: {profile_name}\n\n"
+        f"Trainer label: {profile_name}\n\n"
         "Current profile text:\n"
         f"{existing_profile_text}\n\n"
-        "Feedback:\n"
+        "Feedback (apply only this):\n"
         f"{feedback}\n"
     )
 
@@ -176,12 +206,16 @@ def refine_profile_text(
         response = client.responses.create(
             model=resolved_model,
             input=[
-                {"role": "system", "content": "Return plain text only."},
+                {
+                    "role": "system",
+                    "content": "Return plain text only. Minimal edits; preserve structure and length unless asked.",
+                },
                 {"role": "user", "content": prompt},
             ],
-            temperature=0.2,
+            temperature=0.1,
         )
-        return (response.output_text or "").strip(), resolved_provider
+        out = (response.output_text or "").strip()
+        return _stabilize_refined_profile_text(existing_profile_text, out), resolved_provider
     if resolved_provider == "anthropic":
         if not settings.anthropic_api_key:
             if settings.allow_mock_generation:
@@ -193,12 +227,16 @@ def refine_profile_text(
         )
         response = client.messages.create(
             model=resolved_model,
-            temperature=0.2,
-            max_tokens=1200,
-            system="Return plain text only.",
+            temperature=0.1,
+            max_tokens=900,
+            system=(
+                "Return plain text only. Make the smallest edit that satisfies the feedback; "
+                "keep the same paragraph breaks (two blocks if the input has two) and do not bloat length."
+            ),
             messages=[{"role": "user", "content": prompt}],
         )
         text_blocks = [b.text for b in response.content if hasattr(b, "text")]
-        return "\n".join(text_blocks).strip(), resolved_provider
+        out = "\n".join(text_blocks).strip()
+        return _stabilize_refined_profile_text(existing_profile_text, out), resolved_provider
 
     raise ValueError("Unsupported provider. Use 'openai' or 'anthropic'.")

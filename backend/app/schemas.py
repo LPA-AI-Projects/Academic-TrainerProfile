@@ -106,10 +106,13 @@ class RefineProfileRequest(BaseModel):
     # Parent course / campaign record id (same as webhook zoho_record_id when using parent flow).
     zoho_record_id: str | None = Field(default=None, max_length=128)
     # Trainer_Unique_code from Zoho — use with zoho_record_id to pick the right job when multiple trainers exist.
+    # Optional ``_vN`` (e.g. ``TR2001_v2``) picks the Zoho PDF attachment slot; base code only targets the latest slot.
     unique_code: str | None = Field(default=None, max_length=128)
+    # Deluge-friendly alias for Trainer_Unique_code (same as unique_code; ignored if unique_code is set).
+    title: str | None = Field(default=None, max_length=128)
     profile_name: str | None = Field(default=None, max_length=200)
 
-    @field_validator("zoho_record_id", "unique_code", mode="before")
+    @field_validator("zoho_record_id", "unique_code", "title", mode="before")
     @classmethod
     def empty_optional_ids(cls, value: object) -> str | None:
         if value is None:
@@ -120,12 +123,51 @@ class RefineProfileRequest(BaseModel):
         return str(value).strip() or None
 
     @model_validator(mode="after")
-    def require_lookup_key(self) -> Self:
+    def merge_title_and_require_lookup(self) -> Self:
         z = (self.zoho_record_id or "").strip()
         u = (self.unique_code or "").strip()
-        if not z and not u:
-            raise ValueError("Provide at least one of zoho_record_id or unique_code.")
-        return self
+        t = (self.title or "").strip()
+        if t and u and t != u:
+            raise ValueError("title and unique_code must match when both are set.")
+        merged_unique = (u or t).strip() or None
+        out = self.model_copy(update={"unique_code": merged_unique, "title": None})
+        if not z and not merged_unique:
+            raise ValueError(
+                "Provide at least one of zoho_record_id or unique_code (or title as Trainer_Unique_Code)."
+            )
+        return out
+
+
+class RefineProfilePathBody(BaseModel):
+    """Body for ``POST /api/v1/profiles/refine/{zoho_record_id}`` — parent id is taken from the path."""
+
+    feedback: str = Field(min_length=1, max_length=4000)
+    unique_code: str | None = Field(default=None, max_length=128)
+    title: str | None = Field(
+        default=None,
+        max_length=128,
+        description="Trainer_Unique_Code (alias of unique_code). Optional _vN selects Zoho PDF attachment slot.",
+    )
+    profile_name: str | None = Field(default=None, max_length=200)
+
+    @field_validator("unique_code", "title", mode="before")
+    @classmethod
+    def strip_optional(cls, value: object) -> str | None:
+        if value is None:
+            return None
+        if isinstance(value, str):
+            s = value.strip()
+            return s or None
+        return str(value).strip() or None
+
+    @model_validator(mode="after")
+    def merge_title_into_unique(self) -> Self:
+        u = (self.unique_code or "").strip()
+        t = (self.title or "").strip()
+        if t and u and t != u:
+            raise ValueError("title and unique_code must match when both are set.")
+        merged = (u or t).strip() or None
+        return self.model_copy(update={"unique_code": merged, "title": None})
 
 
 class JobStatusResponse(BaseModel):

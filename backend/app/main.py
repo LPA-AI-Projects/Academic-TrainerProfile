@@ -8,6 +8,7 @@ from shutil import copyfileobj
 from urllib.parse import quote
 
 from fastapi import Depends, FastAPI, File, Form, Header, HTTPException, Request, UploadFile
+from fastapi import Path as PathParam
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import ValidationError
 from fastapi.responses import FileResponse
@@ -30,6 +31,7 @@ from .schemas import (
     ProfileExportLinks,
     ProfileFeedbackRequest,
     ProfileFeedbackResponse,
+    RefineProfilePathBody,
     RefineProfileRequest,
 )
 from .services.google_drive_service import GoogleDriveUploadError, upload_trainer_profile_pdf
@@ -38,6 +40,8 @@ from .services.profile_service import (
     generate_and_store_profile,
     maybe_google_drive_upload_after_pdf,
     maybe_zoho_attach_trainer_pdf_link,
+    parse_trainer_field_explicit_version,
+    trainer_unique_lookup_base,
 )
 from .services.llm_client import refine_profile_text
 
@@ -124,6 +128,7 @@ def _resolve_completed_trainer_job(
         raise HTTPException(status_code=404, detail="No completed profile job found for the given criteria.")
 
     if u:
+        u_base = trainer_unique_lookup_base(u)
         for j in rows:
             if _trainer_unique_from_job(j) == u:
                 logger.info(
@@ -131,6 +136,17 @@ def _resolve_completed_trainer_job(
                     j.id,
                     j.zoho_record_id,
                     u,
+                )
+                return j
+        for j in rows:
+            jc = _trainer_unique_from_job(j)
+            if jc and trainer_unique_lookup_base(jc) == u_base:
+                logger.info(
+                    "RESOLVE_TRAINER_JOB matched_base job_id=%s zoho_record_id=%s unique_code=%s job_code=%s",
+                    j.id,
+                    j.zoho_record_id,
+                    u,
+                    jc,
                 )
                 return j
         logger.warning(
@@ -346,6 +362,11 @@ def health_db() -> dict[str, str]:
     response_model=GenerateProfileResponse,
     dependencies=[optional_api_key],
 )
+@app.post(
+    "/api/v2/profiles/generate",
+    response_model=GenerateProfileResponse,
+    dependencies=[optional_api_key],
+)
 async def generate_profile(request: Request, db: Session = Depends(get_db)):
     ctype = (request.headers.get("content-type") or "").lower()
     if "application/x-www-form-urlencoded" not in ctype:
@@ -443,19 +464,26 @@ async def generate_profile(request: Request, db: Session = Depends(get_db)):
     "/api/v1/profile/refine",
     response_model=GenerateProfileResponse,
     dependencies=[optional_api_key],
-    summary="Refine existing profile using feedback (mapped by zoho_record_id)",
+    summary="Refine profile narrative (legacy path; same as /api/v1/profiles/refine)",
 )
 @app.post(
-    "/api/v2/profiles/generate",
+    "/api/v1/profiles/refine",
     response_model=GenerateProfileResponse,
     dependencies=[optional_api_key],
-    summary="Refine existing profile using feedback",
+    summary="Refine profile narrative by parent zoho_record_id + optional Trainer_Unique_Code",
 )
 async def refine_profile(payload: RefineProfileRequest, request: Request, db: Session = Depends(get_db)):
     """
-    Refine profile narrative from feedback.
-    Lookup: provide `unique_code` (Trainer_Unique_code) and optionally `zoho_record_id` (parent record).
-    If only `zoho_record_id` is sent and a single job exists, that job is refined (legacy).
+    Refine profile narrative from feedback (updates ``generated_profile.profile`` only; PDF + Zoho re-run).
+
+    Lookup: ``zoho_record_id`` is the parent / webhook CRM id stored on the job. Use ``unique_code`` or ``title``
+    (Trainer_Unique_Code) when more than one **completed** trainer profile exists for that parent — each trainer row
+    from the parent flow is a separate job with its own code (e.g. TR2001 vs TR2002).
+
+    Zoho PDF attach targets the CRM row from the job (parent vs trainer per env). Attachment file name is
+    ``{Trainer_Unique_Code}_vN``: with ``unique_code`` / ``title`` set to the base code only (no ``_vN``), the slot
+    is the **latest** existing ``N`` on that CRM row, or **v2** when none exist (same name is replaced). Append
+    ``_vN`` to the code (e.g. ``TR2001_v2``) to replace that version slot only.
     """
     logger.info(
         "API_REFINE_REQUEST zoho_record_id=%s unique_code=%s feedback_chars=%s",
@@ -468,6 +496,16 @@ async def refine_profile(payload: RefineProfileRequest, request: Request, db: Se
         zoho_record_id=payload.zoho_record_id,
         unique_code=payload.unique_code,
     )
+    exp_v = parse_trainer_field_explicit_version(payload.unique_code or "")
+    pi_slot = dict(job.parsed_inputs) if isinstance(job.parsed_inputs, dict) else {}
+    if exp_v is not None:
+        pi_slot["zoho_pdf_attachment_explicit_v"] = exp_v
+    else:
+        pi_slot.pop("zoho_pdf_attachment_explicit_v", None)
+    job.parsed_inputs = pi_slot
+    db.add(job)
+    db.commit()
+    db.refresh(job)
     if job.generated_profile is None:
         raise HTTPException(status_code=400, detail="Job is not ready for feedback refinement")
 
@@ -536,6 +574,38 @@ async def refine_profile(payload: RefineProfileRequest, request: Request, db: Se
         google_drive_pdf_url=_parsed_drive_url(job),
         google_drive_upload_error=_parsed_drive_err(job),
     )
+
+
+@app.post(
+    "/api/v1/profiles/refine/{zoho_record_id}",
+    response_model=GenerateProfileResponse,
+    dependencies=[optional_api_key],
+    summary="Refine profile narrative; parent CRM id in URL (body: feedback, title or unique_code)",
+)
+async def refine_profile_for_parent_zoho(
+    zoho_record_id: str = PathParam(
+        ...,
+        min_length=1,
+        max_length=128,
+        description="Parent / webhook Zoho CRM record id (same as generate webhook).",
+    ),
+    body: RefineProfilePathBody,
+    request: Request,
+    db: Session = Depends(get_db),
+) -> GenerateProfileResponse:
+    """
+    Same behavior as ``POST /api/v1/profiles/refine`` with ``zoho_record_id`` taken from the path.
+    Use ``title`` or ``unique_code`` in the JSON body for Trainer_Unique_Code when multiple trainers share the parent.
+    Optional ``_vN`` suffix selects which PDF version slot to replace on the CRM row; omit it to replace the latest slot.
+    Zoho PDF attachment still targets the CRM row from the job (parent vs trainer per env), not the URL job id.
+    """
+    payload = RefineProfileRequest(
+        feedback=body.feedback,
+        zoho_record_id=zoho_record_id.strip(),
+        unique_code=body.unique_code,
+        profile_name=body.profile_name,
+    )
+    return await refine_profile(payload, request, db)
 
 
 def _form_upload_temp_dir() -> Path:

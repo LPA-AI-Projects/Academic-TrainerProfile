@@ -1,466 +1,405 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
-  <title>Trainer CV Builder — Learners Point</title>
-  <link rel="stylesheet" href="css/builder.css">
-  <link rel="stylesheet" href="css/cv.css">
+  <meta charset="UTF-8" />
+  <title>Trainer CV – Dynamic Full‑Page</title>
+  <style>
+    /* ══════════════════════════════════════════════════════════
+       EXACT STATIC DESIGN – 595×842 px canvas
+       All pixel values match the static reference.
+    ══════════════════════════════════════════════════════════ */
+    * {
+      box-sizing: border-box;
+    }
+
+    :root {
+      /* 210mm x 297mm relative to legacy 595x842 template */
+      --a4-scale: 1.3333333333;
+    }
+
+    body {
+      margin: 0;
+      background: #e9edf2;
+      font-family: "Helvetica Neue", Helvetica, Arial, sans-serif;
+      color: #333;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 24px;
+      padding: 24px;
+      -webkit-font-smoothing: antialiased;
+    }
+
+    .page {
+      position: relative;
+      width: 210mm;
+      height: 297mm;
+      background: #fff;
+      overflow: hidden;
+      flex-shrink: 0;
+      margin: 0 0 24px 0;
+    }
+
+    .canvas {
+      position: absolute;
+      left: 0;
+      top: 0;
+      width: 595px;
+      height: 842px;
+      transform: scale(var(--a4-scale));
+      transform-origin: top left;
+    }
+
+    /* ── Shared elements ── */
+    .pill {
+      position: absolute;
+      left: 293px;
+      top: 84px;
+      width: 343px;
+      background: #2e9d91;
+      color: #fff;
+      padding: 11.8px 20px;
+      border-bottom-left-radius: 16px;
+      font-size: 14px;
+      font-weight: 700;
+    }
+
+    .small-dot {
+      position: absolute;
+      width: 205px;
+      height: 103px;
+      left: -3px;
+      top: -53px;
+    }
+
+    .light {
+      background: rgba(79, 113, 242, 0.08);
+      border-radius: 2px;
+      position: absolute;
+    }
+
+    .footer {
+      position: absolute;
+      left: -30px;
+      bottom: 18px;
+      width: 534px;
+      background: #2e9d91;
+      border-bottom-right-radius: 20px;
+      color: #fff;
+      font-size: 14px;
+      font-weight: 500;
+      padding: 8px 10px 8px 53px;
+      display: flex;
+      justify-content: center;
+      gap: 20px;
+      align-items: center;
+      line-height: 14px;
+    }
+
+    .footer img {
+      width: 15px;
+      height: 15px;
+      vertical-align: middle;
+      margin-right: 4px;
+    }
+
+    h1, h2, p { margin: 0; }
+
+    ul { margin: 0; padding-left: 18px; }
+
+    .title {
+      font-weight: 700;
+      font-size: 20px;
+      line-height: 33.75px;
+    }
+
+    .text12 { font-size: 12px; line-height: 19px; }
+    .text14 { font-size: 14px; line-height: 18px; }
+
+    /* ── Print: transform canvas to real A4 size ── */
+    @media print {
+      @page {
+        size: A4 portrait;
+        margin: 0;
+      }
+      body {
+        background: white;
+        padding: 0;
+        gap: 0;
+      }
+      .page {
+        box-shadow: none;
+        margin: 0 !important;
+        page-break-after: always;
+        break-after: page;
+        width: 210mm !important;
+        height: 297mm !important;
+      }
+      .canvas {
+        transform: scale(var(--a4-scale)) !important;
+        transform-origin: top left !important;
+      }
+      .page:last-child {
+        page-break-after: auto;
+        break-after: auto;
+      }
+    }
+  </style>
 </head>
 <body>
+  <!-- ═══════ PAGE 1 ═══════ -->
+  <section class="page" id="page1">
+    <div class="canvas">
+    <img class="small-dot" src="https://www.figma.com/api/mcp/asset/995c1b40-ab28-4180-a530-d41fe28c286f" alt="" />
 
-<!-- ═══════════════════════════════════════════════════════
-     APP LAYOUT
-     ═══════════════════════════════════════════════════════ -->
-<div class="builder-layout">
+    <img src="https://www.figma.com/api/mcp/asset/e182f189-0a96-43f3-8c49-7498bb40b614" alt="Learners Point"
+         style="position:absolute;right:21px;top:24px;width:166px;height:23px;" />
 
-  <!-- ── Top header ─────────────────────────────────────── -->
-  <header class="builder-header">
-    <div class="builder-header-title">
-      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-        <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path>
-        <polyline points="14 2 14 8 20 8"></polyline>
-        <line x1="16" y1="13" x2="8" y2="13"></line>
-        <line x1="16" y1="17" x2="8" y2="17"></line>
-        <polyline points="10 9 9 9 8 9"></polyline>
-      </svg>
-      Trainer CV Builder
-      <span class="builder-header-badge">Learners Point</span>
+    <div class="pill">
+      CSAT Score <span id="cv-csat-score-val">4.9</span> | Batches Delivered <span id="cv-batches-val">30</span>
     </div>
-    <div class="builder-header-actions">
-      <button class="btn-reset" id="btn-reset">
-        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
-          <polyline points="1 4 1 10 7 10"></polyline>
-          <path d="M3.51 15a9 9 0 1 0 .49-3.68"></path>
-        </svg>
-        Reset
-      </button>
-      <button class="btn-print" id="btn-print">
-        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-          <polyline points="6 9 6 2 18 2 18 9"></polyline>
-          <path d="M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2"></path>
-          <rect x="6" y="14" width="12" height="8"></rect>
-        </svg>
-        Print / Export PDF
-      </button>
+
+    <h1 id="cv-p1-name" style="position:absolute;left:40px;top:90px;font-size:34px;font-weight:700;">
+      Samir F.
+    </h1>
+
+    <p id="cv-p1-tagline" class="text14"
+       style="position:absolute;left:40px;top:147px;width:481px;font-weight:500;">
+      IT Governance Expert | ITIL® 4 Trainer | COBIT® 2019 Consultant ...
+    </p>
+
+    <div id="cv-bio-box"
+         style="position:absolute;left:86px;top:203px;width:467px;height:233px;display:flex;flex-direction:column;gap:21px;"
+         class="text12">
+      <p id="cv-bio-1">Sample bio paragraph one.</p>
+      <p id="cv-bio-2">Sample bio paragraph two.</p>
     </div>
-  </header>
 
-  <!-- ── Body (form + preview) ──────────────────────────── -->
-  <div class="builder-body">
-
-    <!-- ════════════════════════════════════════════════════
-         LEFT: FORM PANEL
-         ════════════════════════════════════════════════════ -->
-    <aside class="builder-form-panel">
-      <div class="form-panel-header">
-        <h2>CV Fields</h2>
-        <p>All changes update the preview instantly</p>
+    <div style="position:absolute;left:41px;top:203px;height:216px;width:17px;display:flex;align-items:center;justify-content:center;">
+      <div style="transform:rotate(-90deg);color:#333;font-family:'Helvetica Neue',Helvetica,Arial,sans-serif;font-size:24px;font-style:normal;font-weight:700;line-height:33.754px;white-space:nowrap;">
+        TRAINER PROFILE
       </div>
+    </div>
 
-      <div class="form-scroll">
+    <div style="position:absolute;left:48px;top:444px;width:1px;height:380px;background:#333;opacity:.8;"></div>
 
-        <!-- ── Section: Header Info ──────────────────────── -->
-        <div class="form-section">
-          <div class="form-section-header">
-            <span class="form-section-title">
-              <span class="form-section-icon icon-green">👤</span>
-              Header Info
-            </span>
-            <span class="form-section-chevron">▾</span>
-          </div>
-          <div class="form-section-body">
-            <div class="form-field">
-              <label for="f-name">Trainer Name</label>
-              <input type="text" id="f-name" placeholder="e.g. Samir F.">
-            </div>
-            <div class="form-row">
-              <div class="form-field">
-                <label for="f-csat">CSAT Score</label>
-                <input type="text" id="f-csat" placeholder="e.g. 4.9">
-              </div>
-              <div class="form-field">
-                <label for="f-batches">Batches Delivered</label>
-                <input type="text" id="f-batches" placeholder="e.g. 30">
-              </div>
-            </div>
-            <div class="form-field">
-              <label for="f-tagline">Title / Tagline</label>
-              <textarea id="f-tagline" placeholder="e.g. ITIL® 4 Trainer | COBIT® Consultant…"></textarea>
-            </div>
-          </div>
-        </div>
+    <div class="light" style="left:64px;top:452px;width:531px;height:390px;"></div>
 
-        <!-- ── Section: AI Generation ─────────────────────── -->
-        <div class="form-section">
-          <div class="form-section-header">
-            <span class="form-section-title">
-              <span class="form-section-icon icon-teal">🤖</span>
-              AI Profile Generation
-            </span>
-            <span class="form-section-chevron">▾</span>
-          </div>
-          <div class="form-section-body">
-            <div class="form-field">
-              <label for="api-base-url">API Base URL</label>
-              <input type="text" id="api-base-url" value="http://localhost:8080">
-            </div>
-            <div class="form-field">
-              <label for="f-zoho-record-id">Zoho Record ID</label>
-              <input type="text" id="f-zoho-record-id" placeholder="e.g. ZOHO-TRN-1087">
-            </div>
-            <div class="form-field">
-              <label for="f-cv-zoho-id">Zoho CV file ID (CRM attachment)</label>
-              <input type="text" id="f-cv-zoho-id" placeholder="From webhook field `cv` — not a Windows path">
-            </div>
-            <div class="form-field">
-              <label for="f-cv-path">Local CV path (dev only)</label>
-              <input type="text" id="f-cv-path" placeholder="e.g. C:\docs\trainer_cv.pdf — leave empty if using Zoho file ID above">
-            </div>
-            <div class="form-field">
-              <label for="f-outline-paths">Course Outline Path(s)</label>
-              <textarea id="f-outline-paths" placeholder="One path per line (optional)"></textarea>
-            </div>
-            <div class="form-row">
-              <div class="form-field">
-                <label for="f-provider">Model Provider</label>
-                <select id="f-provider">
-                  <option value="openai">openai</option>
-                  <option value="anthropic">anthropic</option>
-                </select>
-              </div>
-              <div class="form-field">
-                <label for="f-model-name">Model Name</label>
-                <input type="text" id="f-model-name" placeholder="e.g. claude-sonnet-4-5">
-              </div>
-            </div>
-            <button class="btn-generate-profile" id="btn-generate-profile">Generate and Fill CV</button>
-            <p class="generation-status" id="generation-status"></p>
-          </div>
-        </div>
+    <div id="cv-p1-programs-box" style="position:absolute;left:86px;top:470px;width:387px;">
+      <h2 class="title">PROGRAM TRAINED</h2>
+      <ul id="cv-p1-programs-ul" class="text12"
+          style="margin-top:8px;display:grid;gap:2px;line-height:17px;">
+        <!-- filled dynamically -->
+      </ul>
+    </div>
 
-        <!-- ── Section: Bio ──────────────────────────────── -->
-        <div class="form-section">
-          <div class="form-section-header">
-            <span class="form-section-title">
-              <span class="form-section-icon icon-blue">📝</span>
-              Trainer Profile / Bio
-            </span>
-            <span class="form-section-chevron">▾</span>
-          </div>
-          <div class="form-section-body">
-            <div class="form-field">
-              <label for="f-bio1">Bio — Paragraph 1</label>
-              <textarea id="f-bio1" class="bio-field" placeholder="First paragraph…"></textarea>
-            </div>
-            <div class="form-field">
-              <label for="f-bio2">Bio — Paragraph 2</label>
-              <textarea id="f-bio2" class="bio-field" placeholder="Second paragraph…"></textarea>
-            </div>
-          </div>
-        </div>
+    <div class="footer">
+      <span><img src="https://www.figma.com/api/mcp/asset/a9dff84b-c3e2-427f-88a8-c2cd223148f3" alt="" />info@Learnerspoint.org</span>
+      <span><img src="https://www.figma.com/api/mcp/asset/136064dc-7c4e-4b4e-aac4-0ff4618ca118" alt="" />+971044038000</span>
+      <span><img src="https://www.figma.com/api/mcp/asset/5f5bb243-ab0b-40c4-97cb-6df860d1365b" alt="" />learnerspoint.org</span>
+    </div>
+    </div>
+  </section>
 
-        <!-- ── Section: Programs Trained ────────────────── -->
-        <div class="form-section">
-          <div class="form-section-header">
-            <span class="form-section-title">
-              <span class="form-section-icon icon-orange">📚</span>
-              Programs Trained
-            </span>
-            <span class="form-section-chevron">▾</span>
-          </div>
-          <div class="form-section-body">
-            <div class="dynamic-list" id="list-programs">
-              <div class="dynamic-list-items"></div>
-              <button class="btn-add-item">Add program</button>
-            </div>
-          </div>
-        </div>
+  <!-- ═══════ PAGE 2 ═══════ -->
+  <section class="page" id="page2">
+    <div class="canvas">
+    <div class="light" style="left:63px;top:-21px;width:542px;height:335px;"></div>
 
-        <!-- ── Section: Training Delivered ──────────────── -->
-        <div class="form-section">
-          <div class="form-section-header">
-            <span class="form-section-title">
-              <span class="form-section-icon icon-teal">🏢</span>
-              Training Delivered (Clients)
-            </span>
-            <span class="form-section-chevron">▾</span>
-          </div>
-          <div class="form-section-body">
-            <div class="dynamic-list" id="list-training">
-              <div class="dynamic-list-items"></div>
-              <button class="btn-add-item">Add client</button>
-            </div>
-          </div>
-        </div>
+    <div id="cv-p2-programs-box" style="position:absolute;left:89px;top:48px;width:366px;">
+      <ul id="cv-p2-programs-ul" class="text12"
+          style="display:grid;gap:2px;line-height:17px;">
+        <!-- filled dynamically -->
+      </ul>
+    </div>
 
-        <!-- ── Section: Strengths ────────────────────────── -->
-        <div class="form-section">
-          <div class="form-section-header">
-            <span class="form-section-title">
-              <span class="form-section-icon icon-purple">💡</span>
-              Strengths
-            </span>
-            <span class="form-section-chevron">▾</span>
-          </div>
-          <div class="form-section-body">
-            <div class="dynamic-list" id="list-strengths">
-              <div class="dynamic-list-items"></div>
-              <button class="btn-add-item">Add strength</button>
-            </div>
-          </div>
-        </div>
+    <div class="light" style="left:355px;top:327px;width:255px;height:515px;"></div>
 
-        <!-- ── Section: Professional Experience ─────────── -->
-        <div class="form-section">
-          <div class="form-section-header">
-            <span class="form-section-title">
-              <span class="form-section-icon icon-blue">💼</span>
-              Professional Experience
-            </span>
-            <span class="form-section-chevron">▾</span>
-          </div>
-          <div class="form-section-body">
-            <div class="dynamic-list" id="list-experience">
-              <div class="dynamic-list-items"></div>
-              <button class="btn-add-item">Add experience</button>
-            </div>
-          </div>
-        </div>
+    <div id="cv-p2-training-box" style="position:absolute;left:41px;top:384px;width:232px;">
+      <h2 class="title">TRAINING DELIVERED</h2>
+      <ul id="cv-p2-training-ul" class="text12"
+          style="display:grid;gap:4px;margin-top:10px;">
+        <!-- filled dynamically -->
+      </ul>
+    </div>
 
-        <!-- ── Section: Honors & Awards ─────────────────── -->
-        <div class="form-section">
-          <div class="form-section-header">
-            <span class="form-section-title">
-              <span class="form-section-icon icon-red">🏆</span>
-              Honors &amp; Awards
-            </span>
-            <span class="form-section-chevron">▾</span>
-          </div>
-          <div class="form-section-body">
-            <div class="dynamic-list" id="list-awards">
-              <div class="dynamic-list-items"></div>
-              <button class="btn-add-item">Add award</button>
-            </div>
-          </div>
-        </div>
+    <div id="cv-p2-strengths-box" style="position:absolute;left:389px;top:357px;width:177px;">
+      <h2 class="title">STRENGTHS</h2>
+      <ul id="cv-p2-strengths-ul" class="text12"
+          style="display:grid;gap:4px;margin-top:8px;">
+        <!-- filled dynamically -->
+      </ul>
+    </div>
 
-      </div><!-- /form-scroll -->
-    </aside><!-- /builder-form-panel -->
+    <div class="footer" style="left:-40px;">
+      <span><img src="https://www.figma.com/api/mcp/asset/5cb2b8ce-95d8-4e20-a57f-3ea4b0c6eece" alt="" />info@Learnerspoint.org</span>
+      <span><img src="https://www.figma.com/api/mcp/asset/1814e44d-866d-4bfa-92ec-30415639bcec" alt="" />+971044038000</span>
+      <span><img src="https://www.figma.com/api/mcp/asset/c83d6595-6347-4b98-a26d-187914529843" alt="" />learnerspoint.org</span>
+    </div>
+    </div>
+  </section>
 
+  <!-- ═══════ PAGE 3 ═══════ -->
+  <section class="page" id="page3">
+    <div class="canvas">
+    <div style="position:absolute;left:41px;top:49px;width:488px;">
+      <h2 class="title">PROFESSIONAL EXPERIENCE</h2>
+      <ul id="cv-p3-experience-ul" class="text12"
+          style="display:grid;gap:2px;margin-top:8px;line-height:15px;">
+        <!-- filled dynamically -->
+      </ul>
+    </div>
 
-    <!-- ════════════════════════════════════════════════════
-         RIGHT: PREVIEW PANEL
-         ════════════════════════════════════════════════════ -->
-    <main class="builder-preview-panel">
+    <div class="light" style="left:41px;top:374px;width:568px;height:292px;"></div>
 
-      <div class="preview-panel-header">
-        <div class="preview-panel-header-left">
-          <span class="preview-panel-label">Live Preview</span>
-          <span class="preview-page-indicator">3 pages · A4</span>
-        </div>
-        <div class="preview-zoom-controls">
-          <button class="btn-zoom" id="btn-zoom-out" title="Zoom out">−</button>
-          <span class="preview-zoom-label" id="zoom-label">100%</span>
-          <button class="btn-zoom" id="btn-zoom-in" title="Zoom in">+</button>
-          <button class="btn-zoom" id="btn-zoom-fit" title="Fit to panel" style="width:auto;padding:0 8px;font-size:11px;">Fit</button>
-        </div>
-      </div>
+    <div style="position:absolute;left:91px;top:419px;width:446px;">
+      <h2 class="title">CERTIFICATIONS, HONORS & AWARDS</h2>
+      <ul id="cv-p3-awards-ul" class="text12"
+          style="font-style:italic;display:grid;gap:8px;margin-top:10px;line-height:14px;">
+        <!-- filled dynamically -->
+      </ul>
+    </div>
 
-      <div class="preview-scroll-area">
-        <div class="cv-preview-scaler">
-          <div class="cv-preview-wrapper">
+    <p style="position:absolute;left:41px;top:765px;font-size:34px;font-weight:700;line-height:14px;
+              transform:scale(.47);transform-origin:left top;color:#141414;">
+      Get in touch with us
+    </p>
 
-            <!-- ════════════════════════════════════════════
-                 CV PAGE 1  (A4-10)
-                 ════════════════════════════════════════════ -->
-            <p class="cv-page-label">Page 1</p>
-            <div class="cv-page cv-page-1">
+    <div class="footer" style="left:-38px;">
+      <span><img src="https://www.figma.com/api/mcp/asset/1db6d710-c343-4c23-bdf3-8f58de21c655" alt="" />info@Learnerspoint.org</span>
+      <span><img src="https://www.figma.com/api/mcp/asset/7eab4245-43fe-4035-be50-ae1daa18cf8b" alt="" />+971044038000</span>
+      <span><img src="https://www.figma.com/api/mcp/asset/0a2b7aae-3323-4eec-aa93-f4c6abd6bac5" alt="" />learnerspoint.org</span>
+    </div>
 
-              <!-- Decorative blobs — top-left corner (Figma: Group 297) -->
-              <img class="cv-p1-deco"
-                   src="./images/2.svg"
-                   alt="">
+    <img src="https://www.figma.com/api/mcp/asset/82fc6d76-b2e4-4d81-9e14-663f0d2850b6" alt=""
+         style="position:absolute;left:546px;top:683px;width:49px;height:159px;" />
+    </div>
+  </section>
 
-              <!-- Learners Point logo — top-right -->
-              <div class="cv-p1-logo">
-                <img class="cv-p1-logo-icon"
-                     src="./images/1.svg"
-                     alt="Learners Point Logo">
-                <span class="cv-p1-logo-text">Learners Point</span>
-              </div>
+  <script>
+    (() => {
+      'use strict';
 
-              <!-- CSAT / Batches badge -->
-              <div class="cv-p1-csat">
-                <span>CSAT Score&nbsp;<span class="cv-csat-score-val">4.9</span></span>
-                <span>&nbsp;|&nbsp;Batches Delivered&nbsp;<span class="cv-batches-val">30</span></span>
-              </div>
+      const qp = name => new URLSearchParams(window.location.search).get(name) || '';
+      const esc   = v => String(v ?? '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+      const clean = v => String(v ?? '').replace(/\s+/g,' ').trim();
+      const uniq  = arr => Array.from(new Set((arr || []).map(x => String(x || '').trim()).filter(Boolean)));
+      const topItems = (arr, n) => uniq(arr).slice(0, n);
 
-              <!-- Trainer name -->
-              <p class="cv-p1-name">Samir F.</p>
+      const setText = (id, val) => {
+        const el = document.getElementById(id);
+        if (el) el.textContent = val || '';
+      };
 
-              <!-- Title / tagline -->
-              <p class="cv-p1-tagline"></p>
+      const setList = (id, items) => {
+        const el = document.getElementById(id);
+        if (!el) return;
+        el.innerHTML = items.map(v => `<li>${esc(v)}</li>`).join('');
+      };
 
-              <!-- "TRAINER PROFILE" vertical label -->
-              <div class="cv-p1-section-label">
-                <span>TRAINER PROFILE</span>
-              </div>
+      const splitBio = text => {
+        const paras = String(text || '').split(/\n{2,}/).map(clean).filter(Boolean);
+        if (paras.length >= 2) return [paras[0], paras[1]];
+        return [clean(text), ''];
+      };
 
-              <!-- Bio paragraphs -->
-              <div class="cv-p1-bio">
-                <p class="cv-bio-1"></p>
-                <p class="cv-bio-2"></p>
-              </div>
+      const formatExperience = (line) => {
+        let t = clean(line);
+        if (!t) return '';
+        // Match sample style: "Title - Organization", remove trailing date chunks.
+        t = t.replace(/\s*\([^)]*(?:\d{4}|present|current)[^)]*\)\s*$/gi, '');
+        t = t.replace(/\s*\|\s*/g, ' - ');
+        t = t.replace(/\s{2,}/g, ' ').trim();
+        return t;
+      };
 
-              <!-- Vertical divider line -->
-              <div class="cv-p1-divider"></div>
+      const removeLastUntilFit = (listId, boxId) => {
+        const list = document.getElementById(listId);
+        const box  = document.getElementById(boxId);
+        if (!list || !box) return;
+        while (list.children.length && box.scrollHeight > box.clientHeight) {
+          list.removeChild(list.lastElementChild);
+        }
+      };
 
-              <!-- Program trained — background panel -->
-              <div class="cv-p1-programs-bg"></div>
+      const distributeProgramsAcrossPages = (programs) => {
+        setList('cv-p1-programs-ul', programs.slice(0, 14));
+        setList('cv-p2-programs-ul', programs.slice(14));
+      };
 
-              <!-- Program trained — content -->
-              <div class="cv-p1-programs">
-                <p class="cv-section-title">PROGRAM TRAINED</p>
-                <ul id="cv-p1-programs-ul"></ul>
-              </div>
+      const runOverflowCleaner = () => {
+        removeLastUntilFit('cv-p1-programs-ul', 'cv-p1-programs-box');
+        removeLastUntilFit('cv-p2-programs-ul', 'cv-p2-programs-box');
+        removeLastUntilFit('cv-p2-training-ul', 'cv-p2-training-box');
+        removeLastUntilFit('cv-p2-strengths-ul', 'cv-p2-strengths-box');
+        removeLastUntilFit('cv-p3-experience-ul', 'page3');
+        removeLastUntilFit('cv-p3-awards-ul', 'page3');
+      };
 
-              <!-- Footer -->
-              <div class="cv-footer cv-p1-footer">
-                <div class="cv-footer-inner">
-                  <div class="cv-footer-contacts">
-                    <span class="cv-footer-item">
-                      <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="4" width="20" height="16" rx="2"/><path d="m22 7-8.97 5.7a1.94 1.94 0 0 1-2.06 0L2 7"/></svg>
-                      info@learnerspoint.org
-                    </span>
-                    <span class="cv-footer-item">
-                      <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07A19.5 19.5 0 0 1 4.69 13.5a19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 3.6 2.73h3a2 2 0 0 1 2 1.72 12.84 12.84 0 0 0 .7 2.81 2 2 0 0 1-.45 2.11L7.91 10.1a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45 12.84 12.84 0 0 0 2.81.7A2 2 0 0 1 22 16.92z"/></svg>
-                      +971044038000
-                    </span>
-                  </div>
-                  <span class="cv-footer-website">
-                    <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><line x1="2" y1="12" x2="22" y2="12"/><path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"/></svg>
-                    <span>learnerspoint.org</span>
-                  </span>
-                </div>
-              </div>
+      const applyProfile = (profile) => {
+        const p = profile || {};
 
-            </div><!-- /cv-page-1 -->
+        setText('cv-p1-name', 'This Trainer');
+        setText('cv-p1-tagline', uniq(p.professional_titles).join(' | '));
 
+        setText('cv-csat-score-val',
+          Number.isFinite(+p.csat_score) ? (+p.csat_score).toFixed(1) : '4.8');
+        setText('cv-batches-val',
+          Number.isFinite(+p.batches_delivered) ? String(Math.round(+p.batches_delivered)) : '15');
 
-            <!-- ════════════════════════════════════════════
-                 CV PAGE 2  (A4-11)
-                 ════════════════════════════════════════════ -->
-            <p class="cv-page-label">Page 2</p>
-            <div class="cv-page cv-page-2">
+        const [bio1, bio2] = splitBio(p.profile || '');
+        setText('cv-bio-1', bio1);
+        setText('cv-bio-2', bio2);
 
-              <!-- Top blue background (bleed) -->
-              <div class="cv-p2-top-bg"></div>
+        const programs = topItems(p.programs_trained, 26);
+        distributeProgramsAcrossPages(programs);
 
-              <!-- Programs (continued) -->
-              <div class="cv-p2-programs">
-                <ul id="cv-p2-programs-ul"></ul>
-              </div>
+        setList('cv-p2-training-ul', topItems(p.training_delivered, 16));
 
-              <!-- Strengths — background panel -->
-              <div class="cv-p2-strengths-bg"></div>
+        const skills = p.key_skills?.length ? p.key_skills : p.core_competencies;
+        setList('cv-p2-strengths-ul', topItems(skills, 11));
 
-              <!-- Training Delivered -->
-              <div class="cv-p2-training">
-                <p class="cv-section-title">Training Delivered</p>
-                <ul id="cv-p2-training-ul"></ul>
-              </div>
+        setList('cv-p3-experience-ul', (p.professional_experience || []).map(formatExperience).filter(Boolean));
 
-              <!-- Strengths -->
-              <div class="cv-p2-strengths">
-                <p class="cv-section-title">STRENGTHS</p>
-                <ul id="cv-p2-strengths-ul"></ul>
-              </div>
+        const awards = [
+          ...(p.certificates || []),
+          ...(p.awards_and_recognitions || [])
+        ].filter(x => !/\b(master|bachelor|ph\.?d|doctorate|diploma|b\.?sc|m\.?sc|mba)\b/i.test(x));
+        setList('cv-p3-awards-ul', topItems(awards, 6));
 
-              <!-- Footer -->
-              <div class="cv-footer cv-p2-footer">
-                <div class="cv-footer-inner">
-                  <div class="cv-footer-contacts">
-                    <span class="cv-footer-item">
-                      <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="4" width="20" height="16" rx="2"/><path d="m22 7-8.97 5.7a1.94 1.94 0 0 1-2.06 0L2 7"/></svg>
-                      info@learnerspoint.org
-                    </span>
-                    <span class="cv-footer-item">
-                      <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07A19.5 19.5 0 0 1 4.69 13.5a19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 3.6 2.73h3a2 2 0 0 1 2 1.72 12.84 12.84 0 0 0 .7 2.81 2 2 0 0 1-.45 2.11L7.91 10.1a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45 12.84 12.84 0 0 0 2.81.7A2 2 0 0 1 22 16.92z"/></svg>
-                      +971044038000
-                    </span>
-                  </div>
-                  <span class="cv-footer-website">
-                    <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><line x1="2" y1="12" x2="22" y2="12"/><path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"/></svg>
-                    <span>learnerspoint.org</span>
-                  </span>
-                </div>
-              </div>
+        runOverflowCleaner();
+        setTimeout(runOverflowCleaner, 150);
+      };
 
-            </div><!-- /cv-page-2 -->
+      const loadJob = async () => {
+        const jobRef = qp('job').trim();
+        if (!jobRef) return;
+        const apiBase = (qp('api_base') || window.location.origin).replace(/\/$/, '');
+        const apiKey = qp('api_key').trim();
+        const headers = {};
+        if (apiKey) headers['X-API-Key'] = apiKey;
+        try {
+          const res = await fetch(`${apiBase}/api/v1/profiles/${encodeURIComponent(jobRef)}`, { headers });
+          if (!res.ok) throw new Error(`HTTP ${res.status}`);
+          const data = await res.json();
+          if (!data?.generated_profile) throw new Error('generated_profile missing');
+          applyProfile(data.generated_profile);
+          console.info('[trainer-profile] loaded');
+        } catch (err) {
+          console.error('[trainer-profile] load failed', err);
+        }
+      };
 
+      const autoprint = () => {
+        if (qp('autoprint') === '1') {
+          requestAnimationFrame(() => requestAnimationFrame(() => window.print()));
+        }
+      };
 
-            <!-- ════════════════════════════════════════════
-                 CV PAGE 3  (A4-12)
-                 ════════════════════════════════════════════ -->
-            <p class="cv-page-label">Page 3</p>
-            <div class="cv-page cv-page-3">
-
-              <!-- Professional Experience -->
-              <div class="cv-p3-experience">
-                <p class="cv-section-title">PROFESSIONAL EXPERIENCE</p>
-                <ul id="cv-p3-experience-ul"></ul>
-              </div>
-
-              <!-- Honors & Awards — background panel -->
-              <div class="cv-p3-awards-bg"></div>
-
-              <!-- Honors & Awards — content -->
-              <div class="cv-p3-awards">
-                <p class="cv-section-title">HONORS &amp; AWARDS</p>
-                <ul id="cv-p3-awards-ul"></ul>
-              </div>
-
-              <!-- "Get in touch" CTA -->
-              <p class="cv-p3-cta">Get in touch with us</p>
-
-              <!-- Decorative blobs — bottom-right corner -->
-              <img class="cv-p3-deco"
-                   src="./images/2.svg"
-                   alt="">
-
-              <!-- Footer -->
-              <div class="cv-footer cv-p3-footer">
-                <div class="cv-footer-inner">
-                  <div class="cv-footer-contacts">
-                    <span class="cv-footer-item">
-                      <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="4" width="20" height="16" rx="2"/><path d="m22 7-8.97 5.7a1.94 1.94 0 0 1-2.06 0L2 7"/></svg>
-                      info@learnerspoint.org
-                    </span>
-                    <span class="cv-footer-item">
-                      <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07A19.5 19.5 0 0 1 4.69 13.5a19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 3.6 2.73h3a2 2 0 0 1 2 1.72 12.84 12.84 0 0 0 .7 2.81 2 2 0 0 1-.45 2.11L7.91 10.1a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45 12.84 12.84 0 0 0 2.81.7A2 2 0 0 1 22 16.92z"/></svg>
-                      +971044038000
-                    </span>
-                  </div>
-                  <span class="cv-footer-website">
-                    <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><line x1="2" y1="12" x2="22" y2="12"/><path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"/></svg>
-                    <span>learnerspoint.org</span>
-                  </span>
-                </div>
-              </div>
-
-            </div><!-- /cv-page-3 -->
-
-          </div><!-- /cv-preview-wrapper -->
-        </div><!-- /cv-preview-scaler -->
-      </div><!-- /preview-scroll-area -->
-
-    </main><!-- /builder-preview-panel -->
-
-  </div><!-- /builder-body -->
-</div><!-- /builder-layout -->
-
-<script src="js/app.js"></script>
+      document.addEventListener('DOMContentLoaded', () => {
+        loadJob().then(autoprint);
+      });
+    })();
+  </script>
 </body>
 </html>

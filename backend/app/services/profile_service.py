@@ -18,6 +18,8 @@ from .llm_client import generate_profile_json
 from .prompt_builder import build_prompt
 from .zoho_service import (
     attach_crm_v8_attachment_link,
+    delete_crm_record_attachment,
+    list_crm_record_attachments,
     download_crm_file_to_path,
     extract_file_id_from_zoho_field,
     extract_multiselect_lookup_ids,
@@ -64,6 +66,115 @@ def _job_drive_course_name(job: TrainerProfileJob) -> str:
     if isinstance(v, str) and v.strip():
         return v.strip()
     return (settings.google_drive_fallback_course_name or "Course").strip()
+
+
+def trainer_unique_lookup_base(value: str) -> str:
+    """Strip optional ``_vN`` suffix for comparing Trainer_Unique_Code (e.g. ``TR2001_v2`` → ``TR2001``)."""
+    return re.sub(r"_v\d+$", "", (value or "").strip(), flags=re.IGNORECASE)
+
+
+def parse_trainer_field_explicit_version(value: str | None) -> int | None:
+    """If ``value`` ends with ``_vN``, return ``N``; else ``None`` (caller treats as *latest slot*)."""
+    s = (value or "").strip()
+    m = re.search(r"_v(\d+)$", s, flags=re.IGNORECASE)
+    if not m:
+        return None
+    try:
+        n = int(m.group(1))
+        return n if n >= 1 else None
+    except ValueError:
+        return None
+
+
+def _zoho_trainer_pdf_attachment_title(
+    *, unique: str, module_api_name: str, crm_record_id: str, job: TrainerProfileJob
+) -> str:
+    """
+    Zoho CRM attachment ``title``: ``{Trainer_Unique_Code}_vN``.
+
+    - **Latest** (no ``zoho_pdf_attachment_explicit_v`` on the job): reuse the highest existing ``N`` for this
+      code on the record, or **v2** when none exist; any previous file with that stem is deleted then re-uploaded
+      (replace-in-place naming).
+    - **Explicit** (set on refine when ``unique_code`` / ``title`` includes ``_vN``): use that **N**; delete
+      matching attachment(s) with the same stem, then upload again (e.g. re-publish ``TR2001_v2``).
+    """
+    pi = job.parsed_inputs if isinstance(job.parsed_inputs, dict) else {}
+    raw_ev = pi.get("zoho_pdf_attachment_explicit_v")
+    explicit_v: int | None = None
+    if raw_ev is not None:
+        try:
+            explicit_v = int(raw_ev)
+        except (TypeError, ValueError):
+            explicit_v = None
+        if explicit_v is not None and explicit_v < 1:
+            explicit_v = None
+
+    raw = re.sub(r"[^A-Za-z0-9_-]+", "", (unique or "").strip())
+    base = re.sub(r"_v\d+$", "", raw, flags=re.IGNORECASE)
+    if not base:
+        base = "trainer"
+    base = base[:120]
+
+    rows: list[dict] = []
+    try:
+        rows = list_crm_record_attachments(
+            module_api_name=module_api_name, crm_record_id=crm_record_id
+        )
+    except Exception as exc:
+        logger.warning(
+            "ZOHO_ATTACH_TITLE_LIST_FAIL module=%s record_id=%s err=%s fallback_v2",
+            module_api_name,
+            crm_record_id,
+            exc,
+        )
+        return f"{base}_v2"[:255]
+
+    def _stem(fn: object) -> str:
+        s = str(fn or "").strip()
+        if s.lower().endswith(".pdf"):
+            s = s[:-4]
+        return s.strip()
+
+    pat = re.compile(rf"^{re.escape(base)}_v(\d+)$", re.IGNORECASE)
+    versions: list[int] = []
+    for row in rows:
+        stem = _stem(row.get("File_Name"))
+        m = pat.match(stem)
+        if m:
+            try:
+                versions.append(int(m.group(1)))
+            except ValueError:
+                continue
+
+    if explicit_v is not None:
+        target_v = explicit_v
+    else:
+        target_v = max(versions) if versions else 2
+
+    slot = f"{base}_v{target_v}"
+    for row in rows:
+        stem = _stem(row.get("File_Name"))
+        if stem.lower() != slot.lower():
+            continue
+        aid = row.get("id") or row.get("Id")
+        if not aid:
+            continue
+        try:
+            delete_crm_record_attachment(
+                module_api_name=module_api_name,
+                crm_record_id=crm_record_id,
+                attachment_id=str(aid).strip(),
+            )
+        except Exception as exc:
+            logger.warning(
+                "ZOHO_ATTACH_DELETE_OLD_FAIL module=%s record_id=%s attachment_id=%s stem=%s err=%s",
+                module_api_name,
+                crm_record_id,
+                aid,
+                stem,
+                exc,
+            )
+    return slot[:255]
 
 
 async def _maybe_google_drive_upload_after_pdf(job: TrainerProfileJob, db: Session) -> None:
@@ -219,7 +330,13 @@ async def _maybe_zoho_attach_trainer_pdf_link(
         return
     mod, crm_id = resolved
     unique = _job_trainer_unique_for_drive(job)
-    title = f"Trainer_Profile_{unique}"[:255]
+    title = await asyncio.to_thread(
+        _zoho_trainer_pdf_attachment_title,
+        unique=unique,
+        module_api_name=mod,
+        crm_record_id=crm_id,
+        job=job,
+    )
 
     err: str | None = None
     try:
@@ -247,12 +364,14 @@ async def _maybe_zoho_attach_trainer_pdf_link(
 
     pi = dict(job.parsed_inputs) if isinstance(job.parsed_inputs, dict) else {}
     pi["zoho_trainer_pdf_attachment_url"] = attachment_url
+    pi["zoho_trainer_pdf_attachment_title"] = title
     pi["zoho_trainer_pdf_attachment_source"] = "google_drive" if use_drive else "pdfs"
     if err:
         pi["zoho_trainer_pdf_attachment_error"] = err
     else:
         pi.pop("zoho_trainer_pdf_attachment_error", None)
         pi["zoho_trainer_pdf_attachment_at"] = datetime.utcnow().isoformat() + "Z"
+        pi.pop("zoho_pdf_attachment_explicit_v", None)
     job.parsed_inputs = pi
     db.add(job)
     db.commit()
