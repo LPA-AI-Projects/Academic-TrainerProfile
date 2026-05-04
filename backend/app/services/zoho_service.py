@@ -538,6 +538,38 @@ def get_scalar_field_str(record: dict, field_api_name: str) -> str | None:
     return result
 
 
+def list_crm_record_attachments(*, module_api_name: str, crm_record_id: str) -> list[dict]:
+    """
+    List file attachments on a CRM record (names used for trainer PDF ``{code}_vN`` sequencing).
+
+    Uses CRM v2 ``GET /crm/v2/{module}/{record_id}/Attachments``.
+    """
+    mod = (module_api_name or "").strip().strip("/")
+    rid = (crm_record_id or "").strip()
+    if not mod or not rid:
+        return []
+    path = f"/crm/v2/{mod}/{rid}/Attachments"
+    try:
+        data = _crm_v2_get(path)
+    except Exception:
+        logger.exception(
+            "ZOHO_LIST_ATTACHMENTS_FAILED module=%s record_id=%s",
+            mod,
+            rid,
+        )
+        return []
+    rows = data.get("data")
+    if not isinstance(rows, list):
+        return []
+    logger.info(
+        "ZOHO_LIST_ATTACHMENTS_OK module=%s record_id=%s count=%s",
+        mod,
+        rid,
+        len(rows),
+    )
+    return rows
+
+
 def attach_crm_v8_attachment_link(
     *,
     module_api_name: str,

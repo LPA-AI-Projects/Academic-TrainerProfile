@@ -164,12 +164,12 @@ def refine_profile_text(
     *,
     existing_profile_text: str,
     profile_name: str,
-    feedback: str,
+    refine: str,
     provider: str | None = None,
     model_name: str | None = None,
 ) -> tuple[str, str]:
     """
-    Rewrite only the narrative profile text based on reviewer feedback.
+    Rewrite only the narrative profile text based on ``refine`` instructions.
     Returns (refined_profile_text, resolved_provider).
     """
     settings = get_settings()
@@ -193,8 +193,8 @@ def refine_profile_text(
         f"Trainer label: {profile_name}\n\n"
         "Current profile text:\n"
         f"{existing_profile_text}\n\n"
-        "Feedback (apply only this):\n"
-        f"{feedback}\n"
+        "Refine instructions (apply only this):\n"
+        f"{refine}\n"
     )
 
     if resolved_provider == "openai":

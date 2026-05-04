@@ -450,8 +450,8 @@ async function initAIGeneration() {
     const baseUrl = (document.getElementById('api-base-url')?.value || '').trim();
     const zohoRecordId = (document.getElementById('f-zoho-record-id')?.value || '').trim();
     const cvZohoId = (document.getElementById('f-cv-zoho-id')?.value || '').trim();
-    const cvPath = (document.getElementById('f-cv-path')?.value || '').trim();
     const outlineRaw = document.getElementById('f-outline-paths')?.value || '';
+    const programsRaw = document.getElementById('f-programs-trained')?.value || '';
     const provider = (document.getElementById('f-provider')?.value || '').trim();
     const modelName = (document.getElementById('f-model-name')?.value || '').trim();
 
@@ -459,22 +459,15 @@ async function initAIGeneration() {
       setStatus('API Base URL and Zoho Record ID are required.', true);
       return;
     }
-    if (!cvZohoId && !cvPath) {
-      setStatus('Provide either Zoho CV file ID or a local CV file path (not both).', true);
-      return;
-    }
-    if (cvZohoId && cvPath) {
-      setStatus('Use either Zoho CV file ID or local CV path — clear one of the two fields.', true);
-      return;
-    }
-
-    const payload = {
-      zoho_record_id: zohoRecordId,
-      ...(cvZohoId ? { cv: cvZohoId } : { cv_path: cvPath }),
-      course_outline_paths: parseMultilinePaths(outlineRaw),
-      provider: provider || null,
-      model_name: modelName || null,
-    };
+    const outlinePaths = parseMultilinePaths(outlineRaw);
+    const programsLines = parseMultilinePaths(programsRaw);
+    const params = new URLSearchParams();
+    params.set('zoho_record_id', zohoRecordId);
+    if (cvZohoId) params.set('cv', cvZohoId);
+    if (outlinePaths.length) params.set('course_outline_paths', outlinePaths.join(','));
+    if (programsLines.length) params.set('programs_trained', programsLines.join('\n'));
+    if (provider) params.set('provider', provider);
+    if (modelName) params.set('model_name', modelName);
 
     btn.disabled = true;
     setStatus('Generating trainer profile. Please wait...');
@@ -482,8 +475,8 @@ async function initAIGeneration() {
     try {
       const response = await fetch(`${baseUrl}/api/v1/profiles/generate`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(payload),
+        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+        body: params.toString(),
       });
       const data = await response.json();
       if (!response.ok) {
@@ -577,11 +570,11 @@ document.addEventListener('DOMContentLoaded', () => {
     });
   } else {
     // Clear the sample dynamic lists; job loader will repopulate.
-    listManagers.programs.setItems([]);
-    listManagers.training.setItems([]);
-    listManagers.strengths.setItems([]);
-    listManagers.experience.setItems([]);
-    listManagers.awards.setItems([]);
+    listManagers.programs?.setItems([]);
+    listManagers.training?.setItems([]);
+    listManagers.strengths?.setItems([]);
+    listManagers.experience?.setItems([]);
+    listManagers.awards?.setItems([]);
 
     const emptyText = { 'f-name': '', 'f-csat': '', 'f-batches': '', 'f-tagline': '', 'f-bio1': '', 'f-bio2': '' };
     Object.entries(emptyText).forEach(([id, val]) => {

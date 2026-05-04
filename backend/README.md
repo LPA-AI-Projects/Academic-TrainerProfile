@@ -62,20 +62,16 @@ Open docs:
 
 ### POST `/api/v1/profiles/generate`
 
-Sample request:
+Body must be **`application/x-www-form-urlencoded`** (Zoho webhook style). Trainer CV comes from Zoho only: send **`cv`** (Zoho file id) and/or configure **`ZOHO_MODULE_API_NAME`** + **`ZOHO_CV_FIELD_API_NAME`** so the server reads the CV from the CRM record. **`course_name`** and **`course_outline_paths`** are optional.
 
-```json
-{
-  "zoho_record_id": "ZOHO-TRN-1087",
-  "cv_path": "C:/data/trainer_cv.pdf",
-  "course_outline_paths": [
-    "C:/data/itil-course-outline.pdf",
-    "C:/data/cobit-outline.docx"
-  ],
-  "provider": "anthropic",
-  "model_name": "claude-sonnet-4-5"
-}
-```
+Example form fields:
+
+- `zoho_record_id` — required  
+- `cv` — Zoho attachment id (omit when CRM field env supplies the CV)  
+- `course_name` — optional (Drive / display naming)  
+- `course_outline_paths` — comma- or newline-separated paths (optional)  
+- `programs_trained` — optional comma/newline-separated or JSON-array program titles; merged first into the profile’s programs list, then CV/outline-backed items (duplicates removed)  
+- `provider`, `model_name` — optional overrides  
 
 ### GET `/api/v1/profiles/{job_id}`
 

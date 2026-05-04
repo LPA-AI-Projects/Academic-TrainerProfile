@@ -22,10 +22,15 @@ PROFILE_OUTPUT_SCHEMA = {
 
 
 def build_prompt(
-    cv_text: str, outlines: list[str], *, trainer_heading_name: str | None = None
+    cv_text: str,
+    outlines: list[str],
+    *,
+    trainer_heading_name: str | None = None,
+    programs_trained_hints: list[str] | None = None,
 ) -> str:
     has_outline = bool(outlines)
     heading = (trainer_heading_name or "").strip()
+    hints = [str(x).replace("\n", " ").strip() for x in (programs_trained_hints or []) if str(x).strip()][:40]
 
     base_rules = [
         "You are a professional Trainer Profile Writer for Learners Point Academy, Dubai.",
@@ -49,7 +54,17 @@ def build_prompt(
         "Do not include date ranges/month-year text in professional_experience items; omit year/date suffixes entirely.",
         "STRICT LENGTH RULES: full_name max 18 chars.",
         "Bio must be provided as bio_para1 and bio_para2, each 50-55 words.",
-        "programs_trained: output between 18 and 24 points; include all CV/outline-backed programs first.",
+        "programs_trained: output between 18 and 24 points.",
+        *(
+            [
+                "When CLIENT-SUPPLIED PROGRAMS are provided below: list every distinct client program first (same order, each ≤72 characters), then add CV- and outline-backed programs that are not duplicates or near-duplicates of any client line or each other.",
+                "If a CV program matches a client-supplied line (same or trivial rewording), keep a single entry — prefer the client-supplied wording.",
+            ]
+            if hints
+            else [
+                "programs_trained: include all CV/outline-backed programs first.",
+            ]
+        ),
         "If programs_trained has fewer than 18 explicit points, add inferred points from CV evidence and trainer domain (not generic fillers) until minimum 18 is reached.",
         "Do not exceed 24 points in programs_trained. Each list item must be at most 72 characters (short course-style titles only).",
         "training_delivered: output exactly 12 to 14 points. Each item must be at most 58 characters.",
@@ -72,7 +87,20 @@ def build_prompt(
             "Do not copy-paste course module lines into profile text.",
             "Do not mention the explicit course name directly inside the profile narrative.",
             "Use outline context to prioritize role ordering, strengths, and professional titles.",
-            "Set programs_trained[0] to the primary inferred course/topic from the outline heading if clearly identifiable.",
+            *(
+                []
+                if hints
+                else [
+                    "Set programs_trained[0] to the primary inferred course/topic from the outline heading if clearly identifiable.",
+                ]
+            ),
+            *(
+                [
+                    "After client-supplied programs_trained seeds, place the primary outline-inferred course/topic next if clearly identifiable and not already listed.",
+                ]
+                if hints
+                else []
+            ),
         ]
         input_context = (
             "INPUT MODE: CV + Course Outline(s)\n\n"
@@ -85,6 +113,13 @@ def build_prompt(
             "When details are missing, do not hallucinate institutions, years, or certifications.",
         ]
         input_context = f"INPUT MODE: CV only\n\nCV:\n{cv_text}"
+
+    if hints:
+        hint_block = "\n".join(f"- {h}" for h in hints)
+        input_context += (
+            "\n\nCLIENT-SUPPLIED PROGRAMS (highest priority for programs_trained; merge with CV/outline, no duplicates):\n"
+            f"{hint_block}"
+        )
 
     instruction_block = "\n".join(f"- {rule}" for rule in base_rules + mode_rules)
     return (

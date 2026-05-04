@@ -201,6 +201,39 @@
     </div>
   </section>
 
+  <section class="page" style="height:auto;min-height:0;padding:20px 24px 28px;">
+    <div style="max-width:520px;margin:0 auto;">
+      <h2 style="font-size:16px;margin:0 0 12px;">AI profile generation</h2>
+      <div style="display:grid;gap:10px;">
+        <label for="api-base-url" style="font-size:13px;">API base URL</label>
+        <input type="text" id="api-base-url" value="http://localhost:8080" style="padding:8px;font:inherit;">
+        <label for="f-zoho-record-id" style="font-size:13px;">Zoho record ID</label>
+        <input type="text" id="f-zoho-record-id" placeholder="e.g. ZOHO-TRN-1087" style="padding:8px;font:inherit;">
+        <label for="f-cv-zoho-id" style="font-size:13px;">Zoho CV file ID (optional if CRM loads CV)</label>
+        <input type="text" id="f-cv-zoho-id" placeholder="Webhook cv field" style="padding:8px;font:inherit;">
+        <label for="f-outline-paths" style="font-size:13px;">Course outline path(s), one per line (optional)</label>
+        <textarea id="f-outline-paths" rows="3" placeholder="Optional" style="padding:8px;font:inherit;"></textarea>
+        <label for="f-programs-trained" style="font-size:13px;">Programs trained, one per line (optional)</label>
+        <textarea id="f-programs-trained" rows="3" placeholder="Sent as programs_trained" style="padding:8px;font:inherit;"></textarea>
+        <div style="display:flex;gap:12px;flex-wrap:wrap;align-items:end;">
+          <div>
+            <label for="f-provider" style="font-size:13px;display:block;margin-bottom:4px;">Provider</label>
+            <select id="f-provider" style="padding:8px;font:inherit;">
+              <option value="openai">openai</option>
+              <option value="anthropic">anthropic</option>
+            </select>
+          </div>
+          <div style="flex:1;min-width:180px;">
+            <label for="f-model-name" style="font-size:13px;display:block;margin-bottom:4px;">Model name</label>
+            <input type="text" id="f-model-name" placeholder="e.g. claude-sonnet-4-5" style="width:100%;padding:8px;font:inherit;box-sizing:border-box;">
+          </div>
+        </div>
+        <button type="button" class="btn-generate-profile" id="btn-generate-profile" style="padding:10px 16px;font:inherit;cursor:pointer;">Generate and fill CV</button>
+        <p class="generation-status" id="generation-status" style="margin:0;font-size:13px;color:#333;"></p>
+      </div>
+    </div>
+  </section>
+
   <!-- ═══════ PAGE 2 ═══════ -->
   <section class="page" id="page2">
     <div class="canvas">
@@ -401,5 +434,6 @@
       });
     })();
   </script>
+  <script src="js/app.js"></script>
 </body>
 </html>

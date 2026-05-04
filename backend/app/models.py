@@ -26,7 +26,6 @@ class TrainerProfileJob(Base):
     pdf_path: Mapped[str | None] = mapped_column(Text(), nullable=True)
     pdf_bytes: Mapped[int | None] = mapped_column(Integer(), nullable=True)
     pdf_generated_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
-    feedback_rating: Mapped[int | None] = mapped_column(Integer(), nullable=True)
     feedback_comment: Mapped[str | None] = mapped_column(Text(), nullable=True)
     feedback_updated_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)

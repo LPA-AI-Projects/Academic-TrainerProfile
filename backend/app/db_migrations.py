@@ -34,8 +34,6 @@ def apply_light_migrations(engine: Engine) -> None:
             statements.append("ALTER TABLE trainer_profile_jobs ADD COLUMN pdf_generated_at TIMESTAMP")
     if "pdf_generation_error" not in columns:
         statements.append("ALTER TABLE trainer_profile_jobs ADD COLUMN pdf_generation_error TEXT")
-    if "feedback_rating" not in columns:
-        statements.append("ALTER TABLE trainer_profile_jobs ADD COLUMN feedback_rating INTEGER")
     if "feedback_comment" not in columns:
         statements.append("ALTER TABLE trainer_profile_jobs ADD COLUMN feedback_comment TEXT")
     if "feedback_updated_at" not in columns:

@@ -10,11 +10,14 @@ class GenerateProfileRequest(BaseModel):
     zoho_record_id: str = Field(min_length=1, max_length=128)
     # Optional: Google Drive folder segment + upload filename (see GOOGLE_DRIVE_* env). Webhook can pass this field.
     course_name: str | None = Field(default=None, max_length=200)
-    # Zoho CRM attachment / file id (webhook payload); downloaded server-side.
+    # Zoho CRM file id for the trainer CV (downloaded server-side). Omit when ``ZOHO_*`` env loads ``Trainer_CV`` from the record (legacy) or when using the parent multi-trainer flow (CV on each trainer row).
     cv: str | None = Field(default=None, max_length=256)
-    # Local filesystem path (dev / non-Zoho callers).
-    cv_path: str | None = Field(default=None)
-    course_outline_paths: list[str] = Field(default_factory=list)
+    course_outline_paths: list[str] = Field(
+        default_factory=list,
+        description="Optional local paths to outline files; outline can also be loaded from Zoho when configured.",
+    )
+    # Optional client-supplied program/course titles; merged into programs_trained first, then CV/outline-backed items (no duplicates).
+    programs_trained: list[str] = Field(default_factory=list)
     provider: Literal["openai", "anthropic"] | None = None
     model_name: str | None = None
     prompt_version: str = "v1"
@@ -23,6 +26,12 @@ class GenerateProfileRequest(BaseModel):
     @classmethod
     def validate_outline_paths(cls, value: list[str]) -> list[str]:
         return [v for v in value if v and v.strip()]
+
+    @field_validator("programs_trained")
+    @classmethod
+    def validate_programs_trained(cls, value: list[str]) -> list[str]:
+        out = [str(v).replace("\n", " ").strip() for v in value if v and str(v).strip()]
+        return out[:50]
 
     @field_validator("course_name", mode="before")
     @classmethod
@@ -33,17 +42,6 @@ class GenerateProfileRequest(BaseModel):
             s = value.strip()
             return s or None
         return str(value).strip() or None
-
-    @model_validator(mode="after")
-    def require_cv_source(self) -> Self:
-        has_zoho = bool(self.cv and self.cv.strip())
-        has_local = bool(self.cv_path and self.cv_path.strip())
-        if has_zoho and has_local:
-            raise ValueError("Provide only one of 'cv' or 'cv_path', not both.")
-        # If both omitted, generation may still work when the server is configured to read
-        # CV (and optional outline) from Zoho CRM using `zoho_record_id` + module/field env vars.
-        return self
-
 
 class GeneratedProfilePayload(BaseModel):
     # When set, the HTML template uses this for the main heading instead of "This Trainer".
@@ -102,19 +100,24 @@ class GenerateProfileResponse(BaseModel):
 
 
 class RefineProfileRequest(BaseModel):
-    feedback: str = Field(min_length=1, max_length=4000)
+    """Body for ``POST /api/v1/profiles/refine``."""
+
+    # Primary field: narrative change instructions (no artificial max length; HTTP limits still apply).
+    refine: str | None = Field(default=None, description="How to change the profile narrative.")
+    # Deprecated alias for Deluge/old clients — use ``refine``.
+    feedback: str | None = Field(default=None, description="Same as ``refine``; ignored when ``refine`` is set.")
     # Parent course / campaign record id (same as webhook zoho_record_id when using parent flow).
     zoho_record_id: str | None = Field(default=None, max_length=128)
-    # Trainer_Unique_code from Zoho — use with zoho_record_id to pick the right job when multiple trainers exist.
-    # Optional ``_vN`` (e.g. ``TR2001_v2``) picks the Zoho PDF attachment slot; base code only targets the latest slot.
+    # Trainer_Unique_code from Zoho — use with zoho_record_id when multiple trainers exist.
+    # Optional ``_vN`` (e.g. ``TR2001_v2``) selects the Zoho PDF attachment slot; base code targets the latest slot.
     unique_code: str | None = Field(default=None, max_length=128)
-    # Deluge-friendly alias for Trainer_Unique_code (same as unique_code; ignored if unique_code is set).
+    # Deluge-friendly alias for Trainer_Unique_code (same as unique_code).
     title: str | None = Field(default=None, max_length=128)
     profile_name: str | None = Field(default=None, max_length=200)
 
-    @field_validator("zoho_record_id", "unique_code", "title", mode="before")
+    @field_validator("zoho_record_id", "unique_code", "title", "refine", "feedback", mode="before")
     @classmethod
-    def empty_optional_ids(cls, value: object) -> str | None:
+    def empty_optional_strings(cls, value: object) -> str | None:
         if value is None:
             return None
         if isinstance(value, str):
@@ -123,19 +126,31 @@ class RefineProfileRequest(BaseModel):
         return str(value).strip() or None
 
     @model_validator(mode="after")
-    def merge_title_and_require_lookup(self) -> Self:
+    def merge_title_refine(self) -> Self:
         z = (self.zoho_record_id or "").strip()
         u = (self.unique_code or "").strip()
         t = (self.title or "").strip()
         if t and u and t != u:
             raise ValueError("title and unique_code must match when both are set.")
-        merged_unique = (u or t).strip() or None
-        out = self.model_copy(update={"unique_code": merged_unique, "title": None})
-        if not z and not merged_unique:
+        merged_lookup = (u or t).strip() or None
+        if not z and not merged_lookup:
             raise ValueError(
-                "Provide at least one of zoho_record_id or unique_code (or title as Trainer_Unique_Code)."
+                "Provide at least one of zoho_record_id, unique_code, or title (as Trainer_Unique_Code)."
             )
-        return out
+        r = (self.refine or "").strip()
+        f = (self.feedback or "").strip()
+        merged_refine = r or f
+        if not merged_refine:
+            raise ValueError("Provide refine (or legacy feedback).")
+        return self.model_copy(
+            update={
+                "zoho_record_id": z or None,
+                "unique_code": merged_lookup,
+                "title": None,
+                "refine": merged_refine,
+                "feedback": None,
+            }
+        )
 
 
 class RefineProfilePathBody(BaseModel):
@@ -183,32 +198,10 @@ class JobStatusResponse(BaseModel):
     export: ProfileExportLinks | None = None
     error_message: str | None = None
     pdf_generation_error: str | None = None
-    feedback_rating: int | None = None
     feedback_comment: str | None = None
     feedback_updated_at: datetime | None = None
     created_at: datetime
     updated_at: datetime
-
-
-class ProfileFeedbackRequest(BaseModel):
-    rating: int = Field(ge=1, le=5, description="1-5 rating for generated trainer profile quality.")
-    comment: str | None = Field(default=None, max_length=2000)
-
-    @field_validator("comment")
-    @classmethod
-    def normalize_comment(cls, value: str | None) -> str | None:
-        if value is None:
-            return None
-        cleaned = value.strip()
-        return cleaned or None
-
-
-class ProfileFeedbackResponse(BaseModel):
-    job_id: str
-    zoho_record_id: str
-    rating: int
-    comment: str | None = None
-    feedback_updated_at: datetime
 
 
 class DriveUploadRequest(BaseModel):

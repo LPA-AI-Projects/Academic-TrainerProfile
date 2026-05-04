@@ -59,6 +59,64 @@ def _job_trainer_unique_for_drive(job: TrainerProfileJob) -> str:
     return (str(parsed.get("trainer_unique_code") or "").strip() or "trainer")[:120]
 
 
+def trainer_unique_lookup_base(value: str) -> str:
+    """Strip trailing ``_vN`` so ``TR2002_v2`` matches stored ``TR2002`` for job lookup."""
+    return re.sub(r"_v\d+$", "", (value or "").strip(), flags=re.IGNORECASE)
+
+
+def _next_trainer_pdf_attachment_title(
+    *, unique_from_job: str, module_api_name: str, crm_record_id: str
+) -> str:
+    """
+    Zoho attachment display name: ``{Trainer_Unique_Code}_vN``.
+
+    ``N`` is ``max(existing N for this base on the CRM row) + 1``, or **2** when none exist.
+    Each refine/generate adds a new higher version (e.g. ``TR2002_v2`` then ``TR2002_v3``; refining with
+    ``title`` ``TR2002_v2`` still picks the same job but the new file becomes the next ``_vN``).
+    """
+    raw = re.sub(r"[^A-Za-z0-9_-]+", "", (unique_from_job or "").strip())
+    base = re.sub(r"_v\d+$", "", raw, flags=re.IGNORECASE)
+    if not base:
+        base = "trainer"
+    base = base[:120]
+
+    rows: list[dict] = []
+    try:
+        rows = list_crm_record_attachments(
+            module_api_name=module_api_name, crm_record_id=crm_record_id
+        )
+    except Exception as exc:
+        logger.warning(
+            "ZOHO_ATTACH_TITLE_LIST_FAIL module=%s record_id=%s err=%s fallback_v2",
+            module_api_name,
+            crm_record_id,
+            exc,
+        )
+        return f"{base}_v2"[:255]
+
+    def _stem(fn: object) -> str:
+        s = str(fn or "").strip()
+        if s.lower().endswith(".pdf"):
+            s = s[:-4]
+        return s.strip()
+
+    pat = re.compile(rf"^{re.escape(base)}_v(\d+)$", re.IGNORECASE)
+    versions: list[int] = []
+    for row in rows:
+        name = row.get("File_Name") or row.get("file_name") or row.get("$file_name")
+        stem = _stem(name)
+        m = pat.match(stem)
+        if not m:
+            continue
+        try:
+            versions.append(int(m.group(1)))
+        except ValueError:
+            continue
+
+    next_v = max(versions) + 1 if versions else 2
+    return f"{base}_v{next_v}"[:255]
+
+
 def _job_drive_course_name(job: TrainerProfileJob) -> str:
     settings = get_settings()
     parsed = job.parsed_inputs if isinstance(job.parsed_inputs, dict) else {}
@@ -417,6 +475,38 @@ def _dedupe_list(items: list[str]) -> list[str]:
     return out
 
 
+def _program_merge_key(s: str) -> str:
+    """Case- and whitespace-insensitive key for de-duplicating program lines."""
+    return re.sub(r"\s+", " ", (s or "").strip().lower())
+
+
+def _merge_programs_trained_priority(hints: list[str], model_programs: list[str]) -> list[str]:
+    """Client hints first, then model list, dropping case/whitespace duplicates."""
+    out: list[str] = []
+    seen: set[str] = set()
+    for h in _dedupe_list(_as_string_list(hints)):
+        k = _program_merge_key(h)
+        if not k or k in seen:
+            continue
+        seen.add(k)
+        out.append(h)
+    for p in model_programs:
+        compact = str(p).replace("\n", " ").strip()
+        k = _program_merge_key(compact)
+        if not k or k in seen:
+            continue
+        seen.add(k)
+        out.append(compact)
+    return out
+
+
+def _payload_program_hints(payload: GenerateProfileRequest) -> list[str] | None:
+    raw = [str(x).replace("\n", " ").strip() for x in (payload.programs_trained or []) if str(x).strip()]
+    if not raw:
+        return None
+    return _dedupe_list(raw)[:40]
+
+
 def _normalize_profile_text(value: object) -> str:
     text = str(value or "").strip()
     if not text:
@@ -528,7 +618,9 @@ def _ensure_strengths_count(raw: dict, min_items: int = 10, max_items: int = 11)
     return _compact_list(out, max_items=max_items)
 
 
-def normalize_profile_payload(raw: dict) -> dict:
+def normalize_profile_payload(
+    raw: dict, *, programs_trained_hints: list[str] | None = None
+) -> dict:
     csat_raw = raw.get("csat_score")
     batches_raw = raw.get("batches_delivered")
     try:
@@ -543,10 +635,15 @@ def normalize_profile_payload(raw: dict) -> dict:
     batches = min(20, max(10, batches))
 
     professional_titles = _dedupe_list(_as_string_list(raw.get("professional_titles")))
+    model_programs = _dedupe_list(_as_string_list(raw.get("programs_trained")))
+    if programs_trained_hints:
+        merged_programs = _merge_programs_trained_priority(programs_trained_hints, model_programs)
+    else:
+        merged_programs = model_programs
     programs_trained = _truncate_list_strings(
         _ensure_programs_count(
             raw,
-            _dedupe_list(_as_string_list(raw.get("programs_trained"))),
+            merged_programs,
             min_items=18,
             max_items=24,
         ),
@@ -613,7 +710,8 @@ async def _complete_job_after_prompt(
             provider=payload.provider,
             model_name=payload.model_name,
         )
-        gen = normalize_profile_payload(generated_json)
+        hints = list(payload.programs_trained) if payload.programs_trained else None
+        gen = normalize_profile_payload(generated_json, programs_trained_hints=hints)
         # Heading on the CV: Zoho Trainer_Unique_code when provided (parent multi-trainer flow).
         if trainer_display_name and str(trainer_display_name).strip():
             gen["trainer_display_name"] = str(trainer_display_name).strip()[:40]
@@ -856,7 +954,12 @@ async def generate_from_parent_with_trainers(
                     len(outline_trimmed),
                     sum(len(x) for x in outline_trimmed),
                 )
-                prompt = build_prompt(cv_trimmed, outline_trimmed, trainer_heading_name=heading_label)
+                prompt = build_prompt(
+                    cv_trimmed,
+                    outline_trimmed,
+                    trainer_heading_name=heading_label,
+                    programs_trained_hints=_payload_program_hints(payload),
+                )
 
                 cv_stored = f"zoho://record/{trainer_mod}/{cv_f}/{cv_file_id}"
                 outline_refs = [f"zoho://record/{parent_mod}/{outline_f}/{outline_fid}"]
@@ -877,6 +980,9 @@ async def generate_from_parent_with_trainers(
                         "trainer_record_id": trainer_id,
                         "trainer_unique_code": heading_label,
                         "drive_course_name": parent_drive_course,
+                        "programs_trained_hints": list(payload.programs_trained)
+                        if payload.programs_trained
+                        else [],
                     },
                 )
                 db.add(job)
@@ -930,7 +1036,6 @@ async def generate_and_store_profile(
     if (
         _parent_multi_trainer_enabled(settings)
         and not (payload.cv or "").strip()
-        and not (payload.cv_path or "").strip()
         and not list(payload.course_outline_paths)
     ):
         logger.info(
@@ -947,10 +1052,9 @@ async def generate_and_store_profile(
     temp_zoho_paths: list[Path] = []
     stored_outline_refs: list[str] = list(payload.course_outline_paths)
     logger.info(
-        "GEN_START zoho_record_id=%s cv_present=%s cv_path_present=%s outline_paths=%s provider=%s model=%s",
+        "GEN_START zoho_record_id=%s cv_present=%s outline_paths=%s provider=%s model=%s",
         payload.zoho_record_id,
         bool(payload.cv and payload.cv.strip()),
-        bool(payload.cv_path and payload.cv_path.strip()),
         len(payload.course_outline_paths),
         payload.provider or settings.default_provider,
         payload.model_name or settings.default_model,
@@ -972,10 +1076,6 @@ async def generate_and_store_profile(
                 zoho_id,
                 local_cv,
             )
-        elif (payload.cv_path or "").strip():
-            local_cv = (payload.cv_path or "").strip()
-            cv_path_stored = local_cv
-            logger.info("GEN_CV_LOCAL zoho_record_id=%s local_cv=%s", payload.zoho_record_id, local_cv)
         elif mod and cv_field:
             rid = (payload.zoho_record_id or "").strip()
             file_id = get_file_id_from_record_field(mod, rid, cv_field)
@@ -997,8 +1097,8 @@ async def generate_and_store_profile(
             )
         else:
             raise ValueError(
-                "Provide 'cv' (Zoho file id), 'cv_path' (local path), or set "
-                "ZOHO_MODULE_API_NAME and ZOHO_CV_FIELD_API_NAME to load the CV from CRM using zoho_record_id."
+                "Trainer CV is required from Zoho CRM: pass `cv` (Zoho file id for the CV attachment) or set "
+                "ZOHO_MODULE_API_NAME and ZOHO_CV_FIELD_API_NAME so the CV is read from the record."
             )
 
         outline_read_paths: list[str] = list(payload.course_outline_paths)
@@ -1045,7 +1145,11 @@ async def generate_and_store_profile(
                 except OSError as exc:
                     logger.warning("GEN_TEMP_REMOVE_FAILED path=%s error=%s", temp_zoho_path, exc)
 
-    prompt = build_prompt(cv_trimmed, outline_trimmed)
+    prompt = build_prompt(
+        cv_trimmed,
+        outline_trimmed,
+        programs_trained_hints=_payload_program_hints(payload),
+    )
 
     drive_cn = (payload.course_name or "").strip() or settings.google_drive_fallback_course_name
 
@@ -1061,6 +1165,9 @@ async def generate_and_store_profile(
             "cv_excerpt": cv_trimmed[:4000],
             "outline_count": len(outline_trimmed),
             "drive_course_name": drive_cn,
+            "programs_trained_hints": list(payload.programs_trained)
+            if payload.programs_trained
+            else [],
         },
     )
     db.add(job)

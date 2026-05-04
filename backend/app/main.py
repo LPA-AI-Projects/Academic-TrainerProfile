@@ -29,8 +29,6 @@ from .schemas import (
     GenerateProfileResponse,
     JobStatusResponse,
     ProfileExportLinks,
-    ProfileFeedbackRequest,
-    ProfileFeedbackResponse,
     RefineProfilePathBody,
     RefineProfileRequest,
 )
@@ -366,6 +364,7 @@ def health_db() -> dict[str, str]:
     "/api/v2/profiles/generate",
     response_model=GenerateProfileResponse,
     dependencies=[optional_api_key],
+    summary="Generate profile (alias of v1; same urlencoded webhook body)",
 )
 async def generate_profile(request: Request, db: Session = Depends(get_db)):
     ctype = (request.headers.get("content-type") or "").lower()
@@ -410,10 +409,22 @@ async def generate_profile(request: Request, db: Session = Depends(get_db)):
         (request.headers.get("user-agent") or ""),
     )
 
+    if (form_data.get("cv_path") or "").strip():
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                "Trainer CV must come from Zoho CRM: use the `cv` field (Zoho file id) or configure "
+                "ZOHO_MODULE_API_NAME + ZOHO_CV_FIELD_API_NAME so the CV is read from the record. "
+                "`cv_path` is not supported."
+            ),
+        )
+
     outline_paths_raw = form_data.get("course_outline_paths") or ""
     outline_list: list[str] = []
     if outline_paths_raw:
         outline_list = [p.strip() for p in outline_paths_raw.replace("\n", ",").split(",") if p.strip()]
+
+    programs_list = _parse_outline_paths_form(form_data.get("programs_trained"))
 
     prov_in = (form_data.get("provider") or "").strip()
     prov: Literal["openai", "anthropic"] | None = None
@@ -427,8 +438,8 @@ async def generate_profile(request: Request, db: Session = Depends(get_db)):
             zoho_record_id=zid,
             course_name=(form_data.get("course_name") or "").strip() or None,
             cv=(form_data.get("cv") or "").strip() or None,
-            cv_path=(form_data.get("cv_path") or "").strip() or None,
             course_outline_paths=outline_list,
+            programs_trained=programs_list,
             provider=prov,
             model_name=(form_data.get("model_name") or "").strip() or None,
             prompt_version=(form_data.get("prompt_version") or "v1").strip() or "v1",
@@ -437,10 +448,9 @@ async def generate_profile(request: Request, db: Session = Depends(get_db)):
         raise HTTPException(status_code=422, detail=exc.errors()) from exc
 
     logger.info(
-        "API_GENERATE_FORM_URLENC_REQUEST zoho_record_id=%s cv_present=%s cv_path_present=%s outlines=%s provider=%s model=%s keys=%s",
+        "API_GENERATE_FORM_URLENC_REQUEST zoho_record_id=%s cv_present=%s outlines=%s provider=%s model=%s keys=%s",
         payload.zoho_record_id,
         bool(payload.cv),
-        bool(payload.cv_path),
         len(payload.course_outline_paths),
         payload.provider or settings.default_provider,
         payload.model_name or settings.default_model,
@@ -461,35 +471,27 @@ async def generate_profile(request: Request, db: Session = Depends(get_db)):
 
 
 @app.post(
-    "/api/v1/profile/refine",
-    response_model=GenerateProfileResponse,
-    dependencies=[optional_api_key],
-    summary="Refine profile narrative (legacy path; same as /api/v1/profiles/refine)",
-)
-@app.post(
     "/api/v1/profiles/refine",
     response_model=GenerateProfileResponse,
     dependencies=[optional_api_key],
-    summary="Refine profile narrative by parent zoho_record_id + optional Trainer_Unique_Code",
+    summary="Refine profile narrative (zoho_record_id + Trainer_Unique_Code, refine or feedback)",
 )
 async def refine_profile(payload: RefineProfileRequest, request: Request, db: Session = Depends(get_db)):
     """
-    Refine profile narrative from feedback (updates ``generated_profile.profile`` only; PDF + Zoho re-run).
+    Refine the profile **narrative** only (updates ``generated_profile.profile``; PDF and Zoho attach re-run).
 
-    Lookup: ``zoho_record_id`` is the parent / webhook CRM id stored on the job. Use ``unique_code`` or ``title``
-    (Trainer_Unique_Code) when more than one **completed** trainer profile exists for that parent — each trainer row
-    from the parent flow is a separate job with its own code (e.g. TR2001 vs TR2002).
+    Send ``refine`` or legacy ``feedback``. Lookup: ``zoho_record_id`` is the parent / webhook CRM id on the job;
+    use ``unique_code`` or ``title`` (Trainer_Unique_Code) when more than one completed trainer job exists for that
+    parent.
 
-    Zoho PDF attach targets the CRM row from the job (parent vs trainer per env). Attachment file name is
-    ``{Trainer_Unique_Code}_vN``: with ``unique_code`` / ``title`` set to the base code only (no ``_vN``), the slot
-    is the **latest** existing ``N`` on that CRM row, or **v2** when none exist (same name is replaced). Append
-    ``_vN`` to the code (e.g. ``TR2001_v2``) to replace that version slot only.
+    Zoho PDF attachment name is ``{Trainer_Unique_Code}_vN``: base code targets the latest slot on that CRM row;
+    append ``_vN`` (e.g. ``TR2001_v2``) to replace that version slot only.
     """
     logger.info(
-        "API_REFINE_REQUEST zoho_record_id=%s unique_code=%s feedback_chars=%s",
+        "API_REFINE_REQUEST zoho_record_id=%s unique_code=%s refine_chars=%s",
         payload.zoho_record_id or "(none)",
         payload.unique_code or "(none)",
-        len(payload.feedback or ""),
+        len(payload.refine or ""),
     )
     job = _resolve_completed_trainer_job(
         db,
@@ -523,7 +525,7 @@ async def refine_profile(payload: RefineProfileRequest, request: Request, db: Se
         refined_text, resolved_provider = refine_profile_text(
             existing_profile_text=current_profile,
             profile_name=refine_label,
-            feedback=payload.feedback,
+            refine=payload.refine or "",
             provider=job.provider or settings.default_provider,
             model_name=job.model_name or settings.default_model,
         )
@@ -542,7 +544,7 @@ async def refine_profile(payload: RefineProfileRequest, request: Request, db: Se
     updated["profile"] = refined_text
     job.generated_profile = updated
     job.provider = resolved_provider
-    job.feedback_comment = payload.feedback.strip()
+    job.feedback_comment = (payload.refine or "").strip()
     job.feedback_updated_at = datetime.utcnow()
     job.updated_at = datetime.utcnow()
     job.pdf_generation_error = None
@@ -603,6 +605,7 @@ async def refine_profile_for_parent_zoho(
         feedback=body.feedback,
         zoho_record_id=zoho_record_id.strip(),
         unique_code=body.unique_code,
+        title=body.title,
         profile_name=body.profile_name,
     )
     return await refine_profile(payload, request, db)
@@ -660,34 +663,54 @@ async def generate_profile_form(
     db: Session = Depends(get_db),
     zoho_record_id: str = Form(...),
     course_name: str | None = Form(None, description="Optional: Drive folder segment + filename (see GOOGLE_DRIVE_AUTO_UPLOAD)."),
-    cv: str | None = Form(None, description="Zoho CRM file id for CV (optional if cv_file, cv_path, or CRM field env is used)"),
-    cv_path: str | None = Form(None, description="Server-readable path to CV (optional)"),
-    cv_file: UploadFile | None = File(None, description="Uploaded CV file (optional)"),
+    cv: str | None = Form(
+        None,
+        description="Zoho CRM file id for CV (optional if CRM field env loads CV from the record; uploads are not supported).",
+    ),
+    cv_path: str | None = Form(None, description="Deprecated — rejected; use `cv` (Zoho file id) or CRM field env."),
+    cv_file: UploadFile | None = File(None, description="Deprecated — rejected; CV must come from Zoho CRM."),
     course_outline_paths: str | None = Form(
         None,
         description="Comma/newline-separated server paths, or a JSON array string, e.g. [\"C:/outlines/a.txt\"]",
     ),
     course_outline_file: UploadFile | None = File(None, description="Uploaded course outline (optional)"),
+    programs_trained: str | None = Form(
+        None,
+        description="Optional comma/newline-separated or JSON-array program titles; merged first into programs_trained output.",
+    ),
     provider: str | None = Form(None),
     model_name: str | None = Form(None),
 ):
     """
-    Same pipeline as `POST /api/v1/profiles/generate`, but accepts **multipart/form-data** so Postman can attach
-    `cv_file` and `course_outline_file` instead of JSON + local paths.
+    Same pipeline as `POST /api/v1/profiles/generate`, but accepts **multipart/form-data** (e.g. optional
+    **course_outline_file** upload). Trainer CV must come from Zoho CRM: **cv** (Zoho file id) and/or CRM field
+    env vars — **cv_file** and **cv_path** are rejected with 400.
 
-    CV resolution order: **cv_file** (if non-empty filename) wins over **cv_path** and **cv** (Zoho file id).
-    Outlines: paths from **course_outline_paths** plus any saved **course_outline_file** upload.
-    Omit CV file/path/id when the server is configured to load CV (and optional outline) from Zoho CRM by record id.
+    Outlines: paths from **course_outline_paths** plus any saved **course_outline_file** upload (optional).
     """
     zid = zoho_record_id.strip()
     if not zid or len(zid) > 128:
         raise HTTPException(status_code=400, detail="zoho_record_id must be 1–128 characters after trimming.")
 
+    if cv_path and cv_path.strip():
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                "Trainer CV must come from Zoho CRM: use the `cv` field (Zoho file id) or configure "
+                "ZOHO_MODULE_API_NAME + ZOHO_CV_FIELD_API_NAME. `cv_path` is not supported."
+            ),
+        )
+    if cv_file is not None and (cv_file.filename or "").strip():
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                "Trainer CV must come from Zoho CRM: use the `cv` field (Zoho file id) or configure "
+                "ZOHO_MODULE_API_NAME + ZOHO_CV_FIELD_API_NAME. CV file upload is not supported."
+            ),
+        )
+
     temp_uploads: list[Path] = []
     try:
-        saved_cv = _save_upload_to_temp(cv_file)
-        if saved_cv is not None:
-            temp_uploads.append(saved_cv)
         saved_outline = _save_upload_to_temp(course_outline_file)
         if saved_outline is not None:
             temp_uploads.append(saved_outline)
@@ -696,17 +719,9 @@ async def generate_profile_form(
         if saved_outline is not None:
             outline_list.append(str(saved_outline))
 
-        cv_path_effective: str | None = None
-        cv_id_effective: str | None = None
-        if saved_cv is not None:
-            cv_path_effective = str(saved_cv)
-        elif cv_path and cv_path.strip():
-            cv_path_effective = cv_path.strip()
-        elif cv and cv.strip():
-            cv_id_effective = cv.strip()
+        programs_list = _parse_outline_paths_form(programs_trained)
 
-        if cv_id_effective and cv_path_effective:
-            raise HTTPException(status_code=400, detail="Conflicting CV sources after resolving uploads (file/path vs id).")
+        cv_id_effective: str | None = cv.strip() if cv and cv.strip() else None
 
         prov: Literal["openai", "anthropic"] | None = None
         if provider and provider.strip() == "openai":
@@ -718,8 +733,8 @@ async def generate_profile_form(
             zoho_record_id=zid,
             course_name=course_name.strip() if course_name and course_name.strip() else None,
             cv=cv_id_effective,
-            cv_path=cv_path_effective,
             course_outline_paths=outline_list,
+            programs_trained=programs_list,
             provider=prov,
             model_name=model_name.strip() if model_name and model_name.strip() else None,
         )
@@ -737,10 +752,8 @@ async def generate_profile_form(
         raise
 
     logger.info(
-        "API_GENERATE_FORM zoho_record_id=%s cv_file=%s cv_path=%s cv_id=%s outline_paths_count=%s outline_file=%s",
+        "API_GENERATE_FORM zoho_record_id=%s cv_id=%s outline_paths_count=%s outline_file=%s",
         zoho_record_id,
-        saved_cv is not None,
-        bool(cv_path and cv_path.strip()),
         bool(cv_id_effective),
         len(outline_list),
         saved_outline is not None,
@@ -815,7 +828,6 @@ def get_profile_job(profile_ref: str, request: Request, db: Session = Depends(ge
         export=export,
         error_message=job.error_message,
         pdf_generation_error=job.pdf_generation_error,
-        feedback_rating=job.feedback_rating,
         feedback_comment=job.feedback_comment,
         feedback_updated_at=job.feedback_updated_at,
         created_at=job.created_at,
@@ -842,47 +854,6 @@ async def download_profile_pdf(job_id: str, request: Request, db: Session = Depe
         path=str(path),
         media_type="application/pdf",
         filename=filename,
-    )
-
-
-@app.post(
-    "/api/v2/profiles/{job_id}/feedback",
-    response_model=ProfileFeedbackResponse,
-    dependencies=[optional_api_key],
-)
-def save_profile_feedback(job_id: str, payload: ProfileFeedbackRequest, db: Session = Depends(get_db)):
-    """
-    Store reviewer feedback for a generated trainer profile.
-    Keeps a single latest feedback per job (upsert behavior).
-    """
-    job = db.get(TrainerProfileJob, job_id)
-    if not job:
-        raise HTTPException(status_code=404, detail="Job not found")
-
-    if job.status != "completed":
-        raise HTTPException(status_code=400, detail="Feedback is allowed only for completed jobs")
-
-    now = datetime.utcnow()
-    job.feedback_rating = payload.rating
-    job.feedback_comment = payload.comment
-    job.feedback_updated_at = now
-    db.add(job)
-    db.commit()
-    db.refresh(job)
-
-    logger.info(
-        "API_FEEDBACK_SAVED job_id=%s zoho_record_id=%s rating=%s",
-        job.id,
-        job.zoho_record_id,
-        payload.rating,
-    )
-
-    return ProfileFeedbackResponse(
-        job_id=job.id,
-        zoho_record_id=job.zoho_record_id,
-        rating=job.feedback_rating or payload.rating,
-        comment=job.feedback_comment,
-        feedback_updated_at=job.feedback_updated_at or now,
     )
 
 
