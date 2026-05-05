@@ -71,6 +71,7 @@ Example form fields:
 - `course_name` — optional (Drive / display naming)  
 - `course_outline_paths` — comma- or newline-separated paths (optional)  
 - `programs_trained` — optional comma/newline-separated or JSON-array program titles; merged first into the profile’s programs list, then CV/outline-backed items (duplicates removed)  
+- CRM: by default the app reads the **`Programs_Trained`** multiline field on each Trainers row (override with **`ZOHO_TRAINER_PROGRAMS_FIELD_API_NAME`** if your API name differs); lines are merged after `programs_trained` and before CV-derived programs (same dedupe rules).  
 - `provider`, `model_name` — optional overrides  
 
 ### GET `/api/v1/profiles/{job_id}`

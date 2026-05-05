@@ -500,11 +500,25 @@ def _merge_programs_trained_priority(hints: list[str], model_programs: list[str]
     return out
 
 
-def _payload_program_hints(payload: GenerateProfileRequest) -> list[str] | None:
-    raw = [str(x).replace("\n", " ").strip() for x in (payload.programs_trained or []) if str(x).strip()]
-    if not raw:
+def _parse_multiline_programs_from_zoho(raw: str | None) -> list[str]:
+    """Split Zoho multiline text into one program/title per non-empty line."""
+    if not raw or not str(raw).strip():
+        return []
+    text = str(raw).replace("\r\n", "\n").replace("\r", "\n")
+    return [line.strip() for line in text.split("\n") if line.strip()]
+
+
+def _merge_request_and_crm_program_hints(
+    payload: GenerateProfileRequest,
+    crm_lines: list[str] | None,
+) -> list[str] | None:
+    """Request ``programs_trained`` first, then CRM lines, deduped (case-insensitive key), max 40."""
+    req = [str(x).replace("\n", " ").strip() for x in (payload.programs_trained or []) if str(x).strip()]
+    crm = _dedupe_list([str(x).strip() for x in (crm_lines or []) if str(x).strip()])
+    merged = _merge_programs_trained_priority(req, crm)
+    if not merged:
         return None
-    return _dedupe_list(raw)[:40]
+    return _dedupe_list(merged)[:40]
 
 
 def _normalize_profile_text(value: object) -> str:
@@ -701,6 +715,7 @@ async def _complete_job_after_prompt(
     t0: float,
     *,
     trainer_display_name: str | None = None,
+    programs_trained_hints: list[str] | None = None,
 ) -> TrainerProfileJob:
     settings = get_settings()
     try:
@@ -710,7 +725,9 @@ async def _complete_job_after_prompt(
             provider=payload.provider,
             model_name=payload.model_name,
         )
-        hints = list(payload.programs_trained) if payload.programs_trained else None
+        hints = programs_trained_hints
+        if hints is None:
+            hints = list(payload.programs_trained) if payload.programs_trained else None
         gen = normalize_profile_payload(generated_json, programs_trained_hints=hints)
         # Heading on the CV: Zoho Trainer_Unique_code when provided (parent multi-trainer flow).
         if trainer_display_name and str(trainer_display_name).strip():
@@ -954,11 +971,24 @@ async def generate_from_parent_with_trainers(
                     len(outline_trimmed),
                     sum(len(x) for x in outline_trimmed),
                 )
+                prog_field = (settings.zoho_trainer_programs_field_api_name or "").strip()
+                crm_program_lines: list[str] = []
+                if prog_field:
+                    raw_prog = get_scalar_field_str(trainer_row, prog_field)
+                    crm_program_lines = _parse_multiline_programs_from_zoho(raw_prog)
+                    logger.info(
+                        "GEN_PARENT_PROGRAMS_CRM trainer_id=%s field=%s line_count=%s",
+                        trainer_id,
+                        prog_field,
+                        len(crm_program_lines),
+                    )
+                merged_program_hints = _merge_request_and_crm_program_hints(payload, crm_program_lines)
+
                 prompt = build_prompt(
                     cv_trimmed,
                     outline_trimmed,
                     trainer_heading_name=heading_label,
-                    programs_trained_hints=_payload_program_hints(payload),
+                    programs_trained_hints=merged_program_hints,
                 )
 
                 cv_stored = f"zoho://record/{trainer_mod}/{cv_f}/{cv_file_id}"
@@ -980,9 +1010,8 @@ async def generate_from_parent_with_trainers(
                         "trainer_record_id": trainer_id,
                         "trainer_unique_code": heading_label,
                         "drive_course_name": parent_drive_course,
-                        "programs_trained_hints": list(payload.programs_trained)
-                        if payload.programs_trained
-                        else [],
+                        "programs_trained_hints": merged_program_hints or [],
+                        "programs_trained_crm_lines": len(crm_program_lines),
                     },
                 )
                 db.add(job)
@@ -1003,6 +1032,7 @@ async def generate_from_parent_with_trainers(
                     prompt,
                     t0,
                     trainer_display_name=heading_label,
+                    programs_trained_hints=merged_program_hints,
                 )
                 db.refresh(job)
                 jobs_out.append(job)
@@ -1051,6 +1081,7 @@ async def generate_and_store_profile(
     )
     temp_zoho_paths: list[Path] = []
     stored_outline_refs: list[str] = list(payload.course_outline_paths)
+    crm_program_lines: list[str] = []
     logger.info(
         "GEN_START zoho_record_id=%s cv_present=%s outline_paths=%s provider=%s model=%s",
         payload.zoho_record_id,
@@ -1124,6 +1155,27 @@ async def generate_and_store_profile(
                     outline_field,
                 )
 
+        prog_field = (settings.zoho_trainer_programs_field_api_name or "").strip()
+        if mod and prog_field:
+            rid_prog = (payload.zoho_record_id or "").strip()
+            try:
+                tr_rec = fetch_crm_record(mod, rid_prog)
+                raw_prog = get_scalar_field_str(tr_rec, prog_field)
+                crm_program_lines = _parse_multiline_programs_from_zoho(raw_prog)
+                logger.info(
+                    "GEN_PROGRAMS_FROM_CRM zoho_record_id=%s field=%s line_count=%s",
+                    rid_prog,
+                    prog_field,
+                    len(crm_program_lines),
+                )
+            except Exception as exc:
+                logger.warning(
+                    "GEN_PROGRAMS_CRM_FETCH_FAILED zoho_record_id=%s field=%s err=%s",
+                    rid_prog,
+                    prog_field,
+                    exc,
+                )
+
         t_read = time.perf_counter()
         cv_text = read_text_from_path(local_cv)
         outlines = [read_text_from_path(path) for path in outline_read_paths]
@@ -1145,10 +1197,12 @@ async def generate_and_store_profile(
                 except OSError as exc:
                     logger.warning("GEN_TEMP_REMOVE_FAILED path=%s error=%s", temp_zoho_path, exc)
 
+    merged_program_hints = _merge_request_and_crm_program_hints(payload, crm_program_lines)
+
     prompt = build_prompt(
         cv_trimmed,
         outline_trimmed,
-        programs_trained_hints=_payload_program_hints(payload),
+        programs_trained_hints=merged_program_hints,
     )
 
     drive_cn = (payload.course_name or "").strip() or settings.google_drive_fallback_course_name
@@ -1165,9 +1219,8 @@ async def generate_and_store_profile(
             "cv_excerpt": cv_trimmed[:4000],
             "outline_count": len(outline_trimmed),
             "drive_course_name": drive_cn,
-            "programs_trained_hints": list(payload.programs_trained)
-            if payload.programs_trained
-            else [],
+            "programs_trained_hints": merged_program_hints or [],
+            "programs_trained_crm_lines": len(crm_program_lines),
         },
     )
     db.add(job)
@@ -1175,5 +1228,14 @@ async def generate_and_store_profile(
     db.refresh(job)
     logger.info("GEN_JOB_CREATED job_id=%s status=%s cv_path=%s", job.id, job.status, job.cv_path)
 
-    job = await _complete_job_after_prompt(job, db, payload, public_base_url, prompt, t0, trainer_display_name=None)
+    job = await _complete_job_after_prompt(
+        job,
+        db,
+        payload,
+        public_base_url,
+        prompt,
+        t0,
+        trainer_display_name=None,
+        programs_trained_hints=merged_program_hints,
+    )
     return [job]
