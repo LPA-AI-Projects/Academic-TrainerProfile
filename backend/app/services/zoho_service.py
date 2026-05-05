@@ -388,6 +388,40 @@ def extract_file_id_from_zoho_field(value: object) -> str | None:
     return None
 
 
+def extract_file_ids_from_zoho_field(value: object) -> list[str]:
+    """
+    Parse Zoho File Upload field value(s) and return all CRM file ids in source order.
+    Supports scalar strings, dict wrappers, and list payloads; removes duplicates.
+    """
+    out: list[str] = []
+
+    def _push(fid: str | None) -> None:
+        if not fid:
+            return
+        clean = str(fid).strip()
+        if clean and clean not in out:
+            out.append(clean)
+
+    if value is None:
+        return out
+    if isinstance(value, str):
+        _push(value)
+        return out
+    if isinstance(value, dict):
+        _push(extract_file_id_from_zoho_field(value))
+        nested = value.get("value")
+        if nested is not None:
+            for fid in extract_file_ids_from_zoho_field(nested):
+                _push(fid)
+        return out
+    if isinstance(value, list):
+        for item in value:
+            for fid in extract_file_ids_from_zoho_field(item):
+                _push(fid)
+        return out
+    return out
+
+
 def fetch_crm_record(module_api_name: str, crm_record_id: str) -> dict:
     module_api_name = (module_api_name or "").strip()
     crm_record_id = (crm_record_id or "").strip()

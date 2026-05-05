@@ -515,6 +515,8 @@ async def _refine_profile_impl(
     )
     exp_v = parse_trainer_field_explicit_version(payload.unique_code or "")
     pi_slot = dict(job.parsed_inputs) if isinstance(job.parsed_inputs, dict) else {}
+    # Refine flow increments version slot by default unless an explicit _vN is supplied.
+    pi_slot["zoho_pdf_attachment_increment_version"] = True
     if exp_v is not None:
         pi_slot["zoho_pdf_attachment_explicit_v"] = exp_v
     else:

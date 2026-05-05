@@ -142,15 +142,12 @@ class RefineProfileRequest(BaseModel):
         merged_refine = r or f
         if not merged_refine:
             raise ValueError("Provide refine (or legacy feedback).")
-        return self.model_copy(
-            update={
-                "zoho_record_id": z or None,
-                "unique_code": merged_lookup,
-                "title": None,
-                "refine": merged_refine,
-                "feedback": None,
-            }
-        )
+        self.zoho_record_id = z or None
+        self.unique_code = merged_lookup
+        self.title = None
+        self.refine = merged_refine
+        self.feedback = None
+        return self
 
 
 class RefineProfilePathBody(BaseModel):
@@ -182,7 +179,9 @@ class RefineProfilePathBody(BaseModel):
         if t and u and t != u:
             raise ValueError("title and unique_code must match when both are set.")
         merged = (u or t).strip() or None
-        return self.model_copy(update={"unique_code": merged, "title": None})
+        self.unique_code = merged
+        self.title = None
+        return self
 
 
 class JobStatusResponse(BaseModel):

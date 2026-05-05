@@ -22,6 +22,7 @@ from .zoho_service import (
     list_crm_record_attachments,
     download_crm_file_to_path,
     extract_file_id_from_zoho_field,
+    extract_file_ids_from_zoho_field,
     extract_multiselect_lookup_ids,
     fetch_crm_record,
     format_zoho_field_debug,
@@ -150,13 +151,15 @@ def _zoho_trainer_pdf_attachment_title(
     """
     Zoho CRM attachment ``title``: ``{Trainer_Unique_Code}_vN``.
 
-    - **Latest** (no ``zoho_pdf_attachment_explicit_v`` on the job): pick the next version for this code on the
-      record (``max(existing)+1``), or **v1** when none exist.
+    - **Generate flow** (default): publish/replace ``v1`` for this trainer code.
+    - **Refine flow** (``zoho_pdf_attachment_increment_version`` on the job): pick the next version for this code
+      on the record (``max(existing)+1``), or **v2** when none exist.
     - **Explicit** (set on refine when ``unique_code`` / ``title`` includes ``_vN``): use that **N**; delete
       matching attachment(s) with the same stem, then upload again (e.g. re-publish ``TR2001_v2``).
     """
     pi = job.parsed_inputs if isinstance(job.parsed_inputs, dict) else {}
     raw_ev = pi.get("zoho_pdf_attachment_explicit_v")
+    increment_mode = bool(pi.get("zoho_pdf_attachment_increment_version"))
     explicit_v: int | None = None
     if raw_ev is not None:
         try:
@@ -205,8 +208,10 @@ def _zoho_trainer_pdf_attachment_title(
 
     if explicit_v is not None:
         target_v = explicit_v
+    elif increment_mode:
+        target_v = max(versions) + 1 if versions else 2
     else:
-        target_v = max(versions) + 1 if versions else 1
+        target_v = 1
 
     slot = f"{base}_v{target_v}"
     for row in rows:
@@ -429,6 +434,7 @@ async def _maybe_zoho_attach_trainer_pdf_link(
         pi.pop("zoho_trainer_pdf_attachment_error", None)
         pi["zoho_trainer_pdf_attachment_at"] = datetime.utcnow().isoformat() + "Z"
         pi.pop("zoho_pdf_attachment_explicit_v", None)
+        pi.pop("zoho_pdf_attachment_increment_version", None)
     job.parsed_inputs = pi
     db.add(job)
     db.commit()
@@ -835,10 +841,12 @@ async def generate_from_parent_with_trainers(
     )
 
     outline_raw = parent_record.get(outline_f)
-    outline_fid = extract_file_id_from_zoho_field(outline_raw)
+    outline_ids = extract_file_ids_from_zoho_field(outline_raw)
+    outline_fid = outline_ids[0] if outline_ids else None
     logger.info(
-        "GEN_PARENT_OUTLINE_FIELD field=%s resolved_file_id=%s raw_type=%s raw_preview=%s",
+        "GEN_PARENT_OUTLINE_FIELD field=%s resolved_file_count=%s first_file_id=%s raw_type=%s raw_preview=%s",
         outline_f,
+        len(outline_ids),
         outline_fid or "(none)",
         type(outline_raw).__name__,
         format_zoho_field_debug(outline_raw),
@@ -912,18 +920,21 @@ async def generate_from_parent_with_trainers(
     )
 
     jobs_out: list[TrainerProfileJob] = []
-    outline_path: Path | None = None
+    outline_paths: list[Path] = []
 
     try:
-        outline_path = download_crm_file_to_path(outline_fid, _temp_cv_dir())
-        outline_text = read_text_from_path(str(outline_path))
-        outline_blob = [outline_text]
-        logger.info(
-            "GEN_PARENT_OUTLINE_TEXT parent_id=%s outline_file_id=%s char_count=%s",
-            parent_id,
-            outline_fid,
-            len(outline_text),
-        )
+        outline_blob: list[str] = []
+        for outline_id in outline_ids:
+            op = download_crm_file_to_path(outline_id, _temp_cv_dir())
+            outline_paths.append(op)
+            outline_text = read_text_from_path(str(op))
+            outline_blob.append(outline_text)
+            logger.info(
+                "GEN_PARENT_OUTLINE_TEXT parent_id=%s outline_file_id=%s char_count=%s",
+                parent_id,
+                outline_id,
+                len(outline_text),
+            )
 
         cn_field = (settings.zoho_parent_course_name_field_api_name or "").strip()
         if (payload.course_name or "").strip():
@@ -1002,7 +1013,7 @@ async def generate_from_parent_with_trainers(
                 )
 
                 cv_stored = f"zoho://record/{trainer_mod}/{cv_f}/{cv_file_id}"
-                outline_refs = [f"zoho://record/{parent_mod}/{outline_f}/{outline_fid}"]
+                outline_refs = [f"zoho://record/{parent_mod}/{outline_f}/{oid}" for oid in outline_ids]
 
                 job = TrainerProfileJob(
                     zoho_record_id=payload.zoho_record_id,
@@ -1060,12 +1071,13 @@ async def generate_from_parent_with_trainers(
             )
         return jobs_out
     finally:
-        if outline_path and outline_path.is_file():
-            try:
-                outline_path.unlink()
-                logger.info("GEN_TEMP_REMOVED path=%s", outline_path)
-            except OSError as exc:
-                logger.warning("GEN_TEMP_REMOVE_FAILED path=%s error=%s", outline_path, exc)
+        for op in outline_paths:
+            if op.is_file():
+                try:
+                    op.unlink()
+                    logger.info("GEN_TEMP_REMOVED path=%s", op)
+                except OSError as exc:
+                    logger.warning("GEN_TEMP_REMOVE_FAILED path=%s error=%s", op, exc)
 
 
 async def generate_and_store_profile(
