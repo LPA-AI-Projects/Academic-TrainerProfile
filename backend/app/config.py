@@ -203,9 +203,9 @@ class Settings(BaseSettings):
     zoho_trainer_module_api_name: str = Field(default="Trainers")
     zoho_trainer_cv_field_api_name: str = Field(default="Trainer_CV")
     zoho_trainer_unique_code_field_api_name: str = Field(default="Trainer_Unique_Code")
-    # Multiline text on each Trainers row (default API name Programs_Trained): one program/title per line, merged
-    # into generate hints after request ``programs_trained`` (same dedupe rules).
-    zoho_trainer_programs_field_api_name: str = Field(default="Programs_Trained")
+    # Multiline on each Trainers row (default Training_Delivered): org/client lines for ``training_delivered``;
+    # merged first, then CV-backed items (see profile_service + prompt).
+    zoho_trainer_training_delivered_field_api_name: str = Field(default="Training_Delivered")
     # When parent field has display text only (e.g. "Sabith Test"), search Trainers by this field then fetch CV + code.
     zoho_trainer_lookup_resolve_by_name: bool = True
     # Trainers module field API name to match parent text (Name, Full_Name, custom text field, …).
@@ -255,10 +255,10 @@ class Settings(BaseSettings):
     def default_zoho_trainer_unique_code_field(cls, v: object) -> str:
         return _zoho_str_or_default(v, "Trainer_Unique_Code")
 
-    @field_validator("zoho_trainer_programs_field_api_name", mode="before")
+    @field_validator("zoho_trainer_training_delivered_field_api_name", mode="before")
     @classmethod
-    def default_zoho_trainer_programs_field(cls, v: object) -> str:
-        return _zoho_str_or_default(v, "Programs_Trained")
+    def default_zoho_trainer_training_delivered_field(cls, v: object) -> str:
+        return _zoho_str_or_default(v, "Training_Delivered")
 
     @field_validator("zoho_parent_outline_field_api_name", mode="before")
     @classmethod

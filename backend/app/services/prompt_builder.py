@@ -27,10 +27,14 @@ def build_prompt(
     *,
     trainer_heading_name: str | None = None,
     programs_trained_hints: list[str] | None = None,
+    training_delivered_hints: list[str] | None = None,
 ) -> str:
     has_outline = bool(outlines)
     heading = (trainer_heading_name or "").strip()
     hints = [str(x).replace("\n", " ").strip() for x in (programs_trained_hints or []) if str(x).strip()][:40]
+    td_hints = [str(x).replace("\n", " ").strip() for x in (training_delivered_hints or []) if str(x).strip()][
+        :30
+    ]
 
     base_rules = [
         "You are a professional Trainer Profile Writer for Learners Point Academy, Dubai.",
@@ -68,6 +72,15 @@ def build_prompt(
         "If programs_trained has fewer than 18 explicit points, add inferred points from CV evidence and trainer domain (not generic fillers) until minimum 18 is reached.",
         "Do not exceed 24 points in programs_trained. Each list item must be at most 72 characters (short course-style titles only).",
         "training_delivered: output exactly 12 to 14 points. Each item must be at most 58 characters.",
+        *(
+            [
+                "When CLIENT-SUPPLIED TRAINING DELIVERED lines are provided below: list every distinct Zoho line first (same order, each ≤58 characters), normalized to short 'Org – Region' style when possible without inventing regions.",
+                "Then append additional training_delivered items grounded in the CV (clients/orgs) that are not duplicates or near-duplicates of any Zoho line.",
+                "If a CV line matches a Zoho line, keep a single entry — prefer the Zoho wording.",
+            ]
+            if td_hints
+            else []
+        ),
         "training_delivered must be client/organization names or very short phrases only (no long sentences or narrative). Prefer 'Company – Region' style.",
         "key_skills (used for STRENGTHS): exactly 10 or 11 points, never exceed 11. Each item at most 50 characters; one short phrase per line.",
         "Prefer clean competency tags (short skill phrases) instead of long program-style statements.",
@@ -76,7 +89,11 @@ def build_prompt(
         "professional_experience: include every CV role as its own item. Each item at most 96 characters (short title + organization; no dates).",
         "awards_and_recognitions: max 6 items, each max 70 characters.",
         "Avoid repetition and generic filler. Prefer concise premium corporate wording.",
-        "Include training_delivered organizations/clients if identifiable from CV.",
+        *(
+            ["Include training_delivered organizations/clients from CV only after Zoho-supplied lines are exhausted."]
+            if td_hints
+            else ["Include training_delivered organizations/clients if identifiable from CV."]
+        ),
         "Do not map education entries into awards_and_recognitions.",
         "Return strict JSON only (no markdown, no commentary, no extra keys).",
     ]
@@ -119,6 +136,14 @@ def build_prompt(
         input_context += (
             "\n\nCLIENT-SUPPLIED PROGRAMS (highest priority for programs_trained; merge with CV/outline, no duplicates):\n"
             f"{hint_block}"
+        )
+
+    if td_hints:
+        td_block = "\n".join(f"- {h}" for h in td_hints)
+        input_context += (
+            "\n\nCLIENT-SUPPLIED TRAINING DELIVERED (from Zoho CRM; highest priority for training_delivered; "
+            "then CV-backed orgs, no duplicates):\n"
+            f"{td_block}"
         )
 
     instruction_block = "\n".join(f"- {rule}" for rule in base_rules + mode_rules)

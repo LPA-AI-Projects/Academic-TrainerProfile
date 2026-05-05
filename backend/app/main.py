@@ -470,13 +470,28 @@ async def generate_profile(request: Request, db: Session = Depends(get_db)):
     return _build_generate_profile_response(request, jobs)
 
 
-@app.post(
-    "/api/v1/profiles/refine",
-    response_model=GenerateProfileResponse,
-    dependencies=[optional_api_key],
-    summary="Refine profile narrative (zoho_record_id + Trainer_Unique_Code, refine or feedback)",
-)
-async def refine_profile(payload: RefineProfileRequest, request: Request, db: Session = Depends(get_db)):
+async def _parse_refine_payload_from_request(request: Request) -> RefineProfileRequest:
+    ctype = (request.headers.get("content-type") or "").lower()
+    raw: dict[str, object]
+    if "application/x-www-form-urlencoded" in ctype or "multipart/form-data" in ctype:
+        form = await request.form()
+        raw = dict(form)
+    else:
+        try:
+            body = await request.json()
+        except Exception:
+            body = {}
+        raw = body if isinstance(body, dict) else {}
+
+    try:
+        return RefineProfileRequest(**raw)
+    except ValidationError as exc:
+        raise HTTPException(status_code=422, detail=exc.errors()) from exc
+
+
+async def _refine_profile_impl(
+    payload: RefineProfileRequest, request: Request, db: Session
+) -> GenerateProfileResponse:
     """
     Refine the profile **narrative** only (updates ``generated_profile.profile``; PDF and Zoho attach re-run).
 
@@ -579,6 +594,17 @@ async def refine_profile(payload: RefineProfileRequest, request: Request, db: Se
 
 
 @app.post(
+    "/api/v1/profiles/refine",
+    response_model=GenerateProfileResponse,
+    dependencies=[optional_api_key],
+    summary="Refine profile narrative (zoho_record_id + Trainer_Unique_Code, refine or feedback)",
+)
+async def refine_profile(request: Request, db: Session = Depends(get_db)):
+    payload = await _parse_refine_payload_from_request(request)
+    return await _refine_profile_impl(payload, request, db)
+
+
+@app.post(
     "/api/v1/profiles/refine/{zoho_record_id}",
     response_model=GenerateProfileResponse,
     dependencies=[optional_api_key],
@@ -608,7 +634,7 @@ async def refine_profile_for_parent_zoho(
         title=body.title,
         profile_name=body.profile_name,
     )
-    return await refine_profile(payload, request, db)
+    return await _refine_profile_impl(payload, request, db)
 
 
 def _form_upload_temp_dir() -> Path:
