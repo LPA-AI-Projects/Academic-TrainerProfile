@@ -585,14 +585,14 @@ async def refine_profile(payload: RefineProfileRequest, request: Request, db: Se
     summary="Refine profile narrative; parent CRM id in URL (body: feedback, title or unique_code)",
 )
 async def refine_profile_for_parent_zoho(
+    body: RefineProfilePathBody,
+    request: Request,
     zoho_record_id: str = PathParam(
         ...,
         min_length=1,
         max_length=128,
         description="Parent / webhook Zoho CRM record id (same as generate webhook).",
     ),
-    body: RefineProfilePathBody,
-    request: Request,
     db: Session = Depends(get_db),
 ) -> GenerateProfileResponse:
     """
