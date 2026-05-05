@@ -181,20 +181,34 @@ def refine_profile_text(
     else:
         resolved_model = settings.openai_model
 
+    def _detect_refine_targets(text: str) -> list[str]:
+        t = (text or "").lower()
+        targets: list[str] = []
+        if any(k in t for k in ("bio", "summary", "profile")):
+            targets.extend(["profile_para1", "profile_para2"])
+        if any(k in t for k in ("tone", "style", "wording", "grammar")) and not targets:
+            targets.extend(["profile_para1", "profile_para2"])
+        return targets or ["profile_para1", "profile_para2"]
+
+    target_fields = _detect_refine_targets(refine)
+    structured_current = {
+        "trainer_label": profile_name,
+        "profile_text": existing_profile_text,
+        "target_fields": target_fields,
+    }
     prompt = (
-        "You are making a minimal, surgical revision (like a v1 → v1.1 text edit) to an existing trainer profile.\n"
-        "Apply ONLY what the feedback explicitly asks for. Preserve all other wording, facts, and structure unless "
-        "the feedback requires a change.\n"
-        "Do not add new employers, credentials, metrics, or topics not implied by the feedback and the current text.\n"
-        "Keep overall length within ~12% of the current text (do not expand into a long essay).\n"
-        "If the current text uses two paragraphs separated by a blank line, keep exactly two paragraphs in the same order.\n"
-        "Do not include headings, JSON, bullets, markdown, or meta commentary.\n"
-        "Return plain text only.\n\n"
-        f"Trainer label: {profile_name}\n\n"
-        "Current profile text:\n"
-        f"{existing_profile_text}\n\n"
-        "Refine instructions (apply only this):\n"
-        f"{refine}\n"
+        "You are improving an existing trainer profile narrative.\n\n"
+        "CURRENT PROFILE JSON:\n"
+        f"{json.dumps(structured_current, indent=2, ensure_ascii=False)}\n\n"
+        "REFINE INSTRUCTION:\n"
+        f"{refine}\n\n"
+        "STRICT RULES:\n"
+        "- You MUST apply the refine instruction.\n"
+        "- Only update targeted narrative content; keep all other content unchanged.\n"
+        "- Do NOT invent new facts, employers, credentials, metrics, or domains.\n"
+        "- Preserve paragraph count/order (if two paragraphs exist, keep two).\n"
+        "- Keep length near original (within about 12%).\n"
+        "- Return plain text only (no JSON, no markdown, no bullets).\n"
     )
 
     if resolved_provider == "openai":
@@ -215,7 +229,18 @@ def refine_profile_text(
             temperature=0.1,
         )
         out = (response.output_text or "").strip()
-        return _stabilize_refined_profile_text(existing_profile_text, out), resolved_provider
+        stabilized = _stabilize_refined_profile_text(existing_profile_text, out)
+        logger.info(
+            "REFINE_DIFF provider=%s model=%s changed=%s old_len=%s new_len=%s old_head=%r new_head=%r",
+            resolved_provider,
+            resolved_model,
+            stabilized != (existing_profile_text or "").strip(),
+            len((existing_profile_text or "").strip()),
+            len(stabilized),
+            (existing_profile_text or "").strip()[:160],
+            stabilized[:160],
+        )
+        return stabilized, resolved_provider
     if resolved_provider == "anthropic":
         if not settings.anthropic_api_key:
             if settings.allow_mock_generation:
@@ -237,6 +262,17 @@ def refine_profile_text(
         )
         text_blocks = [b.text for b in response.content if hasattr(b, "text")]
         out = "\n".join(text_blocks).strip()
-        return _stabilize_refined_profile_text(existing_profile_text, out), resolved_provider
+        stabilized = _stabilize_refined_profile_text(existing_profile_text, out)
+        logger.info(
+            "REFINE_DIFF provider=%s model=%s changed=%s old_len=%s new_len=%s old_head=%r new_head=%r",
+            resolved_provider,
+            resolved_model,
+            stabilized != (existing_profile_text or "").strip(),
+            len((existing_profile_text or "").strip()),
+            len(stabilized),
+            (existing_profile_text or "").strip()[:160],
+            stabilized[:160],
+        )
+        return stabilized, resolved_provider
 
     raise ValueError("Unsupported provider. Use 'openai' or 'anthropic'.")

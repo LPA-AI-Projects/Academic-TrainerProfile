@@ -406,7 +406,7 @@
 
         setList(
           'cv-p2-training-ul',
-          topItems(p.training_delivered, 14).map((x) => clampLine(x, 58)),
+          topItems(p.training_delivered, 14).map((x) => clean(x)),
         );
 
         const skills = p.key_skills?.length ? p.key_skills : p.core_competencies;
@@ -427,7 +427,7 @@
           ...(p.certificates || []),
           ...(p.awards_and_recognitions || [])
         ].filter(x => !/\b(master|bachelor|ph\.?d|doctorate|diploma|b\.?sc|m\.?sc|mba)\b/i.test(x));
-        setList('cv-p3-awards-ul', topItems(awards, 6).map((x) => clampLine(x, 70)));
+        setList('cv-p3-awards-ul', topItems(awards, 6).map((x) => clean(x)));
 
         runOverflowCleaner();
         setTimeout(runOverflowCleaner, 150);

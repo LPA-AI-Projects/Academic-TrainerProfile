@@ -71,10 +71,10 @@ def build_prompt(
         ),
         "If programs_trained has fewer than 18 explicit points, add inferred points from CV evidence and trainer domain (not generic fillers) until minimum 18 is reached.",
         "Do not exceed 24 points in programs_trained. Each list item must be at most 72 characters (short course-style titles only).",
-        "training_delivered: output exactly 12 to 14 points. Each item must be at most 58 characters.",
+        "training_delivered: output exactly 12 to 14 points. Keep each item concise and brochure-friendly, but do not truncate text with ellipses.",
         *(
             [
-                "When CLIENT-SUPPLIED TRAINING DELIVERED lines are provided below: list every distinct Zoho line first (same order, each ≤58 characters), normalized to short 'Org – Region' style when possible without inventing regions.",
+                "When CLIENT-SUPPLIED TRAINING DELIVERED lines are provided below: list every distinct Zoho line first (same order), normalized to short 'Org – Region' style when possible without inventing regions.",
                 "Then append additional training_delivered items grounded in the CV (clients/orgs) that are not duplicates or near-duplicates of any Zoho line.",
                 "If a CV line matches a Zoho line, keep a single entry — prefer the Zoho wording.",
             ]
@@ -87,7 +87,7 @@ def build_prompt(
         "Keep each key_skills point concise and CV/domain aligned; must fit one line in the fixed brochure (no wrapping paragraphs).",
         "Do not repeat the same or near-duplicate wording across programs_trained, training_delivered, or key_skills.",
         "professional_experience: include every CV role as its own item. Each item at most 96 characters (short title + organization; no dates).",
-        "awards_and_recognitions: max 6 items, each max 70 characters.",
+        "awards_and_recognitions: max 6 items. Keep wording concise and avoid ellipsis-based truncation.",
         "Avoid repetition and generic filler. Prefer concise premium corporate wording.",
         *(
             ["Include training_delivered organizations/clients from CV only after Zoho-supplied lines are exhausted."]

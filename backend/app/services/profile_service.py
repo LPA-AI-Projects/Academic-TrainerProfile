@@ -671,10 +671,7 @@ def normalize_profile_payload(
         merged_td = _merge_programs_trained_priority(training_delivered_hints, model_td)
     else:
         merged_td = model_td
-    training_delivered = _truncate_list_strings(
-        _compact_list(merged_td, max_items=14),
-        58,
-    )
+    training_delivered = _compact_list(merged_td, max_items=14)
     professional_experience = _truncate_list_strings(
         _dedupe_list(_as_string_list(raw.get("professional_experience"))),
         96,
@@ -707,9 +704,9 @@ def normalize_profile_payload(
         "key_skills": key_skills,
     }
     if not normalized["training_delivered"]:
-        normalized["training_delivered"] = _truncate_list_strings(
-            _compact_list(_as_string_list(raw.get("board_experience")), max_items=14),
-            58,
+        normalized["training_delivered"] = _compact_list(
+            _as_string_list(raw.get("board_experience")),
+            max_items=14,
         )
     return normalized
 

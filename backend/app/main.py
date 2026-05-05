@@ -556,6 +556,13 @@ async def _refine_profile_impl(
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
     refined_text = refined_text.strip() or current_profile
+    logger.info(
+        "API_REFINE_DIFF job_id=%s changed=%s old_head=%r new_head=%r",
+        job.id,
+        refined_text != current_profile,
+        current_profile[:160],
+        refined_text[:160],
+    )
     updated = dict(job.generated_profile or {})
     # Only this field is changed as requested.
     updated["profile"] = refined_text
