@@ -97,6 +97,8 @@ class GenerateProfileResponse(BaseModel):
     google_drive_upload_error: str | None = None
     # When the parent-record + multi-trainer Zoho flow runs, one entry per trainer.
     jobs: list[GenerateProfileJobItem] | None = None
+    # Present when generation was skipped (e.g. no trainer CV on linked records).
+    message: str | None = None
 
 
 class RefineProfileRequest(BaseModel):
@@ -133,15 +135,17 @@ class RefineProfileRequest(BaseModel):
         if t and u and t != u:
             raise ValueError("title and unique_code must match when both are set.")
         merged_lookup = (u or t).strip() or None
-        if not z and not merged_lookup:
-            raise ValueError(
-                "Provide at least one of zoho_record_id, unique_code, or title (as Trainer_Unique_Code)."
-            )
+        if not z:
+            raise ValueError("zoho_record_id is required for refine.")
+        if not merged_lookup:
+            raise ValueError("unique_code or title (Trainer_Unique_Code) is required for refine.")
         r = (self.refine or "").strip()
         f = (self.feedback or "").strip()
         merged_refine = r or f
         if not merged_refine:
             raise ValueError("Provide refine (or legacy feedback).")
+        if len(merged_refine) < 10:
+            raise ValueError("Refine instruction must be at least 10 characters.")
         self.zoho_record_id = z or None
         self.unique_code = merged_lookup
         self.title = None
@@ -153,7 +157,7 @@ class RefineProfileRequest(BaseModel):
 class RefineProfilePathBody(BaseModel):
     """Body for ``POST /api/v1/profiles/refine/{zoho_record_id}`` — parent id is taken from the path."""
 
-    feedback: str = Field(min_length=1, max_length=4000)
+    feedback: str = Field(min_length=10, max_length=4000)
     unique_code: str | None = Field(default=None, max_length=128)
     title: str | None = Field(
         default=None,

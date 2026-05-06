@@ -35,9 +35,12 @@ async def ensure_job_pdf_on_disk(
     db: Session,
     job: TrainerProfileJob,
     public_base_url: str,
+    force: bool = False,
 ) -> Path:
     """
     Ensure `storage/pdfs/{job_id}.pdf` exists for a completed job.
+
+    When ``force=True``, always re-render (e.g. after refine) instead of reusing an existing file.
 
     Returns the absolute PDF path.
     """
@@ -45,10 +48,17 @@ async def ensure_job_pdf_on_disk(
         raise ValueError("Job is not ready for PDF export")
 
     target = job_pdf_abs_path(job.id)
-    if target.is_file() and target.stat().st_size > 0:
+    if not force and target.is_file() and target.stat().st_size > 0:
         return target
 
-    logger.info("Generating PDF file job_id=%s path=%s", job.id, str(target))
+    if force and target.is_file():
+        try:
+            target.unlink()
+            logger.info("PDF_FORCE_REMOVE_OLD job_id=%s path=%s", job.id, str(target))
+        except OSError as exc:
+            logger.warning("PDF_FORCE_REMOVE_FAILED job_id=%s path=%s err=%s", job.id, str(target), exc)
+
+    logger.info("Generating PDF file job_id=%s path=%s force=%s", job.id, str(target), force)
     pdf_bytes = await render_trainer_profile_pdf(public_base_url=public_base_url, job_id=job.id)
 
     tmp = target.with_suffix(target.suffix + ".tmp")

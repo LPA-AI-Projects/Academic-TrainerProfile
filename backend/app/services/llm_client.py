@@ -6,6 +6,7 @@ from openai import OpenAI
 
 from ..config import Settings, get_settings
 from ..utils.logger import get_logger
+from .prompt_builder import PROFILE_OUTPUT_SCHEMA
 
 logger = get_logger(__name__)
 
@@ -132,6 +133,113 @@ def generate_profile_json(
         raise ValueError("Unsupported provider. Use 'openai' or 'anthropic'.")
 
     return payload, resolved_provider, raw
+
+
+def _merge_refined_profile_dict(existing: dict[str, Any], refined: dict[str, Any]) -> dict[str, Any]:
+    out = dict(existing)
+    for k, v in refined.items():
+        if v is not None:
+            out[k] = v
+    return out
+
+
+def refine_generated_profile_json(
+    *,
+    existing_profile: dict[str, Any],
+    refine_instruction: str,
+    trainer_label: str,
+    provider: str | None = None,
+    model_name: str | None = None,
+) -> tuple[dict[str, Any], str, str]:
+    """
+    Apply refinement instructions to the full stored profile JSON.
+
+    Returns ``(merged_profile, resolved_provider, raw_model_output)``.
+    """
+    settings = get_settings()
+    resolved_provider = provider or settings.default_provider
+    if model_name:
+        resolved_model = model_name
+    elif resolved_provider == "anthropic":
+        resolved_model = settings.anthropic_model or settings.default_model
+    else:
+        resolved_model = settings.openai_model
+
+    schema_hint = json.dumps(PROFILE_OUTPUT_SCHEMA, indent=2, ensure_ascii=False)
+    current_json = json.dumps(existing_profile, indent=2, ensure_ascii=False)
+    prompt = (
+        "You are editing an EXISTING trainer profile JSON payload.\n\n"
+        "CURRENT PROFILE JSON:\n"
+        f"{current_json}\n\n"
+        "REFINE INSTRUCTION:\n"
+        f"{refine_instruction}\n\n"
+        f"Trainer label context (heading only; keep narrative third-person): {trainer_label}\n\n"
+        "RULES:\n"
+        "- Return ONE JSON object only (no markdown).\n"
+        "- Modify only fields necessary to satisfy the instruction.\n"
+        "- Preserve structure compatible with the reference schema.\n"
+        "- Do NOT invent employers, credentials, dates, or certifications not grounded in the current JSON "
+        "or the instruction.\n\n"
+        "REFERENCE OUTPUT SHAPE:\n"
+        f"{schema_hint}\n"
+    )
+
+    if resolved_provider == "openai":
+        if not settings.openai_api_key:
+            if settings.allow_mock_generation:
+                logger.warning("REFINE_JSON_MOCK_OPENAI unchanged profile allow_mock_generation=1")
+                return dict(existing_profile), resolved_provider, "mock-openai-refine"
+            raise ValueError("OPENAI_API_KEY is missing.")
+        client = OpenAI(api_key=settings.openai_api_key)
+        response = client.responses.create(
+            model=resolved_model,
+            input=[
+                {"role": "system", "content": "Return strict JSON only. Do not wrap in markdown."},
+                {"role": "user", "content": prompt},
+            ],
+            temperature=0.2,
+        )
+        output_text = response.output_text or ""
+        refined_obj = _extract_json_object(output_text)
+        merged = _merge_refined_profile_dict(existing_profile, refined_obj)
+        logger.info(
+            "REFINE_JSON_DONE provider=%s model=%s merged_keys=%s",
+            resolved_provider,
+            resolved_model,
+            len(merged),
+        )
+        return merged, resolved_provider, output_text
+
+    if resolved_provider == "anthropic":
+        if not settings.anthropic_api_key:
+            if settings.allow_mock_generation:
+                logger.warning("REFINE_JSON_MOCK_ANTHROPIC unchanged profile allow_mock_generation=1")
+                return dict(existing_profile), resolved_provider, "mock-anthropic-refine"
+            raise ValueError("ANTHROPIC_API_KEY is missing.")
+        client = Anthropic(
+            api_key=settings.anthropic_api_key,
+            base_url=settings.anthropic_base_url or "https://api.anthropic.com",
+        )
+        response = client.messages.create(
+            model=resolved_model,
+            temperature=0.2,
+            max_tokens=8192,
+            system="Return strict JSON only. Do not use markdown code fences.",
+            messages=[{"role": "user", "content": prompt}],
+        )
+        text_blocks = [b.text for b in response.content if hasattr(b, "text")]
+        output_text = "\n".join(text_blocks)
+        refined_obj = _extract_json_object(output_text)
+        merged = _merge_refined_profile_dict(existing_profile, refined_obj)
+        logger.info(
+            "REFINE_JSON_DONE provider=%s model=%s merged_keys=%s",
+            resolved_provider,
+            resolved_model,
+            len(merged),
+        )
+        return merged, resolved_provider, output_text
+
+    raise ValueError("Unsupported provider. Use 'openai' or 'anthropic'.")
 
 
 def _stabilize_refined_profile_text(original: str, refined: str) -> str:

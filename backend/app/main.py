@@ -7,6 +7,8 @@ from typing import Literal
 from shutil import copyfileobj
 from urllib.parse import quote
 
+from starlette.requests import ClientDisconnect
+
 from fastapi import Depends, FastAPI, File, Form, Header, HTTPException, Request, UploadFile
 from fastapi import Path as PathParam
 from fastapi.middleware.cors import CORSMiddleware
@@ -24,6 +26,7 @@ from .models import TrainerProfileJob
 from .schemas import (
     DriveUploadRequest,
     DriveUploadResponse,
+    GeneratedProfilePayload,
     GenerateProfileJobItem,
     GenerateProfileRequest,
     GenerateProfileResponse,
@@ -38,10 +41,11 @@ from .services.profile_service import (
     generate_and_store_profile,
     maybe_google_drive_upload_after_pdf,
     maybe_zoho_attach_trainer_pdf_link,
+    normalize_profile_payload,
     parse_trainer_field_explicit_version,
     trainer_unique_lookup_base,
 )
-from .services.llm_client import refine_profile_text
+from .services.llm_client import refine_generated_profile_json
 
 settings = get_settings()
 
@@ -210,9 +214,33 @@ def _export_links_for_job(request: Request, job_id: str) -> ProfileExportLinks:
     )
 
 
-def _build_generate_profile_response(request: Request, jobs: list[TrainerProfileJob]) -> GenerateProfileResponse:
+def _build_generate_profile_response(
+    request: Request,
+    jobs: list[TrainerProfileJob],
+    *,
+    zoho_record_id: str | None = None,
+    empty_message: str | None = None,
+) -> GenerateProfileResponse:
     if not jobs:
-        raise HTTPException(status_code=500, detail="No generation jobs returned")
+        z = (zoho_record_id or "").strip()
+        if not z:
+            raise HTTPException(status_code=500, detail="No generation jobs returned")
+        logger.warning(
+            "API_GENERATE_EMPTY_RESPONSE zoho_record_id=%s message=%s",
+            z,
+            empty_message or "no jobs",
+        )
+        return GenerateProfileResponse(
+            status="skipped",
+            zoho_record_id=z,
+            pdf_url="",
+            generated_profile=GeneratedProfilePayload(),
+            google_drive_pdf_url=None,
+            google_drive_upload_error=None,
+            jobs=None,
+            message=empty_message
+            or "No trainer profiles were generated (e.g. no linked trainer had a CV file on record).",
+        )
     failed = [j for j in jobs if j.status == "failed"]
     if failed:
         raise HTTPException(status_code=400, detail=failed[0].error_message or "Generation failed")
@@ -467,14 +495,20 @@ async def generate_profile(request: Request, db: Session = Depends(get_db)):
         zid,
         len(jobs),
     )
-    return _build_generate_profile_response(request, jobs)
+    return _build_generate_profile_response(request, jobs, zoho_record_id=zid)
 
 
 async def _parse_refine_payload_from_request(request: Request) -> RefineProfileRequest:
     ctype = (request.headers.get("content-type") or "").lower()
     raw: dict[str, object]
     if "application/x-www-form-urlencoded" in ctype or "multipart/form-data" in ctype:
-        form = await request.form()
+        try:
+            form = await request.form()
+        except ClientDisconnect:
+            raise HTTPException(
+                status_code=400,
+                detail="Client disconnected before request body was received.",
+            ) from None
         raw = dict(form)
     else:
         try:
@@ -493,14 +527,11 @@ async def _refine_profile_impl(
     payload: RefineProfileRequest, request: Request, db: Session
 ) -> GenerateProfileResponse:
     """
-    Refine the profile **narrative** only (updates ``generated_profile.profile``; PDF and Zoho attach re-run).
+    Refine the stored profile JSON (LLM returns updated JSON merged onto the existing payload), then re-run PDF/Drive/Zoho.
 
-    Send ``refine`` or legacy ``feedback``. Lookup: ``zoho_record_id`` is the parent / webhook CRM id on the job;
-    use ``unique_code`` or ``title`` (Trainer_Unique_Code) when more than one completed trainer job exists for that
-    parent.
+    Requires ``zoho_record_id``, ``unique_code`` / ``title``, and a refine instruction (min 10 characters).
 
-    Zoho PDF attachment name is ``{Trainer_Unique_Code}_vN``: base code targets the latest slot on that CRM row;
-    append ``_vN`` (e.g. ``TR2001_v2``) to replace that version slot only.
+    Zoho PDF attachment name is ``{Trainer_Unique_Code}_vN``: append ``_vN`` to target a specific slot.
     """
     logger.info(
         "API_REFINE_REQUEST zoho_record_id=%s unique_code=%s refine_chars=%s",
@@ -525,12 +556,9 @@ async def _refine_profile_impl(
     db.add(job)
     db.commit()
     db.refresh(job)
-    if job.generated_profile is None:
-        raise HTTPException(status_code=400, detail="Job is not ready for feedback refinement")
-
-    current_profile = str((job.generated_profile or {}).get("profile") or "").strip()
-    if not current_profile:
-        raise HTTPException(status_code=400, detail="Existing profile text is empty for this record")
+    gp = job.generated_profile if isinstance(job.generated_profile, dict) else {}
+    if not gp:
+        raise HTTPException(status_code=400, detail="Job has no generated profile to refine.")
 
     refine_label = (
         (payload.profile_name or "").strip()
@@ -539,10 +567,10 @@ async def _refine_profile_impl(
     )
 
     try:
-        refined_text, resolved_provider = refine_profile_text(
-            existing_profile_text=current_profile,
-            profile_name=refine_label,
-            refine=payload.refine or "",
+        merged_full, resolved_provider, raw_out = refine_generated_profile_json(
+            existing_profile=dict(gp),
+            refine_instruction=payload.refine or "",
+            trainer_label=refine_label,
             provider=job.provider or settings.default_provider,
             model_name=job.model_name or settings.default_model,
         )
@@ -555,19 +583,32 @@ async def _refine_profile_impl(
         )
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
-    refined_text = refined_text.strip() or current_profile
+    try:
+        gen = normalize_profile_payload(
+            merged_full,
+            programs_trained_hints=None,
+            training_delivered_hints=None,
+        )
+    except Exception as exc:
+        logger.warning("API_REFINE_NORMALIZE_FALLBACK job_id=%s err=%s", job.id, exc)
+        gen = merged_full
+
+    disp = merged_full.get("trainer_display_name") or gp.get("trainer_display_name")
+    if disp:
+        gen["trainer_display_name"] = str(disp).strip()[:40]
+
+    old_snap = json.dumps(gp, sort_keys=True, default=str)
+    new_snap = json.dumps(gen, sort_keys=True, default=str)
     logger.info(
-        "API_REFINE_DIFF job_id=%s changed=%s old_head=%r new_head=%r",
+        "API_REFINE_JSON_DIFF job_id=%s changed=%s raw_chars=%s",
         job.id,
-        refined_text != current_profile,
-        current_profile[:160],
-        refined_text[:160],
+        old_snap != new_snap,
+        len(raw_out or ""),
     )
-    updated = dict(job.generated_profile or {})
-    # Only this field is changed as requested.
-    updated["profile"] = refined_text
-    job.generated_profile = updated
+
+    job.generated_profile = gen
     job.provider = resolved_provider
+    job.raw_model_output = raw_out or ""
     job.feedback_comment = (payload.refine or "").strip()
     job.feedback_updated_at = datetime.utcnow()
     job.updated_at = datetime.utcnow()
@@ -579,7 +620,7 @@ async def _refine_profile_impl(
     # Rebuild PDF so exported file reflects refined profile text.
     try:
         pub = _public_base_url(request)
-        await ensure_job_pdf_on_disk(db=db, job=job, public_base_url=pub)
+        await ensure_job_pdf_on_disk(db=db, job=job, public_base_url=pub, force=True)
         await maybe_google_drive_upload_after_pdf(job, db)
         await maybe_zoho_attach_trainer_pdf_link(job, db, public_base_url=pub)
     except Exception as exc:
@@ -809,7 +850,7 @@ async def generate_profile_form(
         zoho_record_id,
         len(jobs),
     )
-    return _build_generate_profile_response(request, jobs)
+    return _build_generate_profile_response(request, jobs, zoho_record_id=zoho_record_id)
 
 
 @app.get(

@@ -672,10 +672,7 @@ def normalize_profile_payload(
     else:
         merged_td = model_td
     training_delivered = _compact_list(merged_td, max_items=14)
-    professional_experience = _truncate_list_strings(
-        _dedupe_list(_as_string_list(raw.get("professional_experience"))),
-        96,
-    )
+    professional_experience = _dedupe_list(_as_string_list(raw.get("professional_experience")))
     key_skills = _truncate_list_strings(_ensure_strengths_count(raw, min_items=10, max_items=11), 50)
     awards_and_recognitions = _compact_list(_as_string_list(raw.get("awards_and_recognitions")), max_items=6)
     certificates = _compact_list(_as_string_list(raw.get("certificates")), max_items=6)
@@ -1063,8 +1060,9 @@ async def generate_from_parent_with_trainers(
                         logger.warning("GEN_TEMP_REMOVE_FAILED path=%s error=%s", temp_cv, exc)
 
         if not jobs_out:
-            raise ValueError(
-                "No trainer profiles were generated: check Trainer_CV file upload on each linked trainer record."
+            logger.warning(
+                "GEN_PARENT_NO_JOBS parent_id=%s reason=no_trainer_cv_or_all_skipped",
+                parent_id,
             )
         return jobs_out
     finally:

@@ -420,7 +420,7 @@
           (p.professional_experience || [])
             .map(formatExperience)
             .filter(Boolean)
-            .map((x) => clampLine(x, 96)),
+            .map((x) => clean(x)),
         );
 
         const awards = [

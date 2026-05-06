@@ -86,7 +86,7 @@ def build_prompt(
         "Prefer clean competency tags (short skill phrases) instead of long program-style statements.",
         "Keep each key_skills point concise and CV/domain aligned; must fit one line in the fixed brochure (no wrapping paragraphs).",
         "Do not repeat the same or near-duplicate wording across programs_trained, training_delivered, or key_skills.",
-        "professional_experience: include every CV role as its own item. Each item at most 96 characters (short title + organization; no dates).",
+        "professional_experience: include every CV role as its own item with complete wording; no ellipsis-based truncation.",
         "awards_and_recognitions: max 6 items. Keep wording concise and avoid ellipsis-based truncation.",
         "Avoid repetition and generic filler. Prefer concise premium corporate wording.",
         *(
