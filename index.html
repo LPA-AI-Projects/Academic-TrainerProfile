@@ -139,33 +139,47 @@
     .p1-programs-clip { max-height: 308px; overflow: hidden; }
     /* Page 2: programs band, then left (industry + solutions) + right (strengths) */
     .p2-programs-clip { max-height: 210px; overflow: hidden; }
-    .p2-industry-clip { max-height: 130px; overflow: hidden; }
+    .p2-industry-clip { max-height: 152px; overflow: hidden; }
     .p2-solutions-clip { max-height: 210px; overflow: hidden; }
     .p2-strengths-clip { max-height: 360px; overflow: hidden; }
-    .p3-experience-clip { max-height: 318px; overflow: hidden; }
+    .p3-experience-clip { max-height: 340px; overflow: hidden; }
     .p3-awards-clip { max-height: 252px; overflow: hidden; }
 
-    /* Page 3 — structured professional experience (title + 2 bullets per block) */
+    /* Page 3 — professional experience: square marker per role, round sub-bullets, 2 lines each */
     #cv-p3-experience-root { margin-top: 6px; }
-    .cv-exp-block { margin-bottom: 10px; }
-    .cv-exp-block:last-child { margin-bottom: 0; }
+    ul.cv-exp-outer {
+      list-style-type: square;
+      margin: 0;
+      padding-left: 16px;
+    }
+    li.cv-exp-item {
+      margin-bottom: 9px;
+      padding-left: 2px;
+    }
+    li.cv-exp-item:last-child { margin-bottom: 0; }
     .cv-exp-title {
       font-weight: 700;
       font-size: 12.5px;
       line-height: 1.32;
       color: #141414;
-      margin-bottom: 4px;
+      margin-bottom: 3px;
+      text-transform: none;
     }
     .cv-exp-bullets {
       margin: 0;
-      padding-left: 16px;
+      padding-left: 14px;
       list-style-type: disc;
     }
     .cv-exp-bullets li {
       font-size: 11.5px;
       line-height: 1.45;
-      margin-bottom: 3px;
+      margin-bottom: 4px;
       color: #333;
+      display: -webkit-box;
+      -webkit-box-orient: vertical;
+      -webkit-line-clamp: 2;
+      overflow: hidden;
+      word-break: break-word;
     }
     .cv-exp-bullets li:last-child { margin-bottom: 0; }
 
@@ -179,12 +193,19 @@
       line-height: 33.75px;
     }
 
-    /* Page 2 section headings — compact caps to match brochure reference */
+    /* Page 2 section headings — title case, no forced caps */
     .title.title--caps {
       font-size: 17px;
       line-height: 1.2;
       letter-spacing: 0.04em;
       text-transform: uppercase;
+    }
+    .title.title--section {
+      font-size: 17px;
+      line-height: 1.22;
+      font-weight: 700;
+      letter-spacing: 0.01em;
+      text-transform: none;
     }
 
     .text12 { font-size: 12px; line-height: 19px; }
@@ -245,7 +266,7 @@
     </p>
 
     <div id="cv-bio-box"
-         style="position:absolute;left:86px;top:215px;width:467px;height:233px;display:flex;flex-direction:column;gap:15px;"
+         style="position:absolute;left:86px;top:218px;width:467px;height:233px;display:flex;flex-direction:column;gap:12px;"
          class="text12">
       <p id="cv-bio-1">Sample bio paragraph one.</p>
       <p id="cv-bio-2">Sample bio paragraph two.</p>
@@ -296,14 +317,14 @@
     <!-- Left column: INDUSTRY EXPOSURE + SOLUTIONS DELIVERED (white page background) -->
     <div id="cv-p2-left-column" style="position:absolute;left:41px;top:268px;width:262px;">
       <div id="cv-p2-industry-box" class="p2-industry-clip">
-        <h2 class="title title--caps">INDUSTRY EXPOSURE</h2>
+        <h2 class="title title--section">Industry exposure</h2>
         <ul id="cv-p2-industry-ul" class="text12"
             style="margin-top:6px;display:grid;gap:3px;line-height:16px;padding-left:16px;">
           <!-- filled dynamically -->
         </ul>
       </div>
       <div id="cv-p2-solutions-box" class="p2-solutions-clip" style="margin-top:10px;">
-        <h2 class="title title--caps">SOLUTIONS DELIVERED</h2>
+        <h2 class="title title--section">Solutions delivered</h2>
         <ul id="cv-p2-solutions-ul" class="text12"
             style="margin-top:6px;display:grid;gap:3px;line-height:16px;padding-left:16px;">
           <!-- filled dynamically -->
@@ -312,7 +333,7 @@
     </div>
 
     <div id="cv-p2-strengths-box" class="p2-strengths-clip" style="position:absolute;left:328px;top:278px;width:190px;">
-      <h2 class="title title--caps">STRENGTHS</h2>
+      <h2 class="title title--section">Strengths</h2>
       <ul id="cv-p2-strengths-ul" class="text12"
           style="display:grid;gap:4px;margin-top:8px;padding-left:16px;">
         <!-- filled dynamically -->
@@ -331,7 +352,7 @@
   <section class="page" id="page3">
     <div class="canvas">
     <div id="cv-p3-experience-box" class="p3-experience-clip" style="position:absolute;left:41px;top:49px;width:488px;">
-      <h2 class="title title--caps">PROFESSIONAL EXPERIENCE</h2>
+      <h2 class="title title--section">Professional experience</h2>
       <div id="cv-p3-experience-root" class="text12"></div>
     </div>
 
@@ -410,18 +431,27 @@
         const root = document.getElementById('cv-p3-experience-root');
         const box = document.getElementById('cv-p3-experience-box');
         if (!root || !box) return;
-        while (box.scrollHeight > box.clientHeight && root.children.length) {
-          const lastBlock = root.lastElementChild;
-          if (!lastBlock) break;
-          const ul = lastBlock.querySelector('.cv-exp-bullets');
-          if (ul && ul.children.length > 0) {
-            ul.removeChild(ul.lastElementChild);
-            if (ul.children.length === 0) {
-              lastBlock.remove();
+        while (box.scrollHeight > box.clientHeight) {
+          const outer = root.querySelector('ul.cv-exp-outer');
+          if (outer && outer.children.length) {
+            const lastLi = outer.lastElementChild;
+            if (!lastLi) break;
+            const ul = lastLi.querySelector('.cv-exp-bullets');
+            if (ul && ul.children.length > 0) {
+              ul.removeChild(ul.lastElementChild);
+              if (ul.children.length === 0) lastLi.remove();
+            } else {
+              lastLi.remove();
             }
-          } else {
-            lastBlock.remove();
+            if (!outer.children.length) outer.remove();
+            continue;
           }
+          const flatUl = root.querySelector('ul.text12');
+          if (flatUl && flatUl.children.length) {
+            flatUl.removeChild(flatUl.lastElementChild);
+            continue;
+          }
+          break;
         }
       };
 
@@ -446,17 +476,18 @@
           ? sections.filter((s) => s && (String(s.title || s.heading || '').trim() || (Array.isArray(s.bullets) && s.bullets.length)))
           : [];
         if (blocks.length) {
-          root.innerHTML = blocks.slice(0, 3).map((sec) => {
+          const inner = blocks.slice(0, 3).map((sec) => {
             const title = clean(sec.title || sec.heading || '');
             const bs = Array.isArray(sec.bullets) ? sec.bullets : (Array.isArray(sec.points) ? sec.points : []);
-            const li1 = clampLine(String(bs[0] || ''), 260);
-            const li2 = clampLine(String(bs[1] || ''), 260);
+            const li1 = clampLine(String(bs[0] || ''), 200);
+            const li2 = clampLine(String(bs[1] || ''), 200);
             const items = [li1, li2].filter(Boolean);
             if (!title && !items.length) return '';
             const lis = items.map((t) => `<li>${esc(t)}</li>`).join('');
             const ulHtml = lis ? `<ul class="cv-exp-bullets">${lis}</ul>` : '';
-            return `<div class="cv-exp-block"><div class="cv-exp-title">${esc(title)}</div>${ulHtml}</div>`;
+            return `<li class="cv-exp-item"><div class="cv-exp-title">${esc(title)}</div>${ulHtml}</li>`;
           }).filter(Boolean).join('');
+          root.innerHTML = `<ul class="cv-exp-outer text12">${inner}</ul>`;
           return;
         }
         const lines = (legacyLines || [])

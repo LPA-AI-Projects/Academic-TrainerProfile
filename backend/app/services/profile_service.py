@@ -651,7 +651,7 @@ def _normalize_professional_experience_blocks(raw: dict) -> tuple[list[dict[str,
     Returns (sections, flat_lines) where flat_lines feeds legacy consumers and HTML fallback.
     """
     max_title = 100
-    max_bullet = 260
+    max_bullet = 200
     sections: list[dict[str, list[str]]] = []
     raw_sections = raw.get("professional_experience_sections")
     if isinstance(raw_sections, list):
