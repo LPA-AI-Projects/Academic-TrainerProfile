@@ -35,22 +35,22 @@ def _mock_response() -> dict[str, Any]:
             {
                 "title": "Corporate learning and workforce enablement strategy",
                 "bullets": [
-                    "Leads enterprise capability programs that align learning outcomes with business priorities and measurable performance gains.",
-                    "Facilitates executive and practitioner cohorts through frameworks that translate strategy into day-to-day operational excellence.",
+                    "Shapes enterprise capability plans that tie learning goals to measurable performance and adoption signals.",
+                    "Runs cohort workshops that turn strategy into repeatable habits for leaders and frontline teams.",
                 ],
             },
             {
                 "title": "Instructional design and assessment innovation advisory",
                 "bullets": [
-                    "Designs learning journeys with competency signals, practice application, and feedback loops that sustain behavior change.",
-                    "Partners with stakeholders on evaluation design, quality assurance, and continuous improvement across training portfolios.",
+                    "Builds concise learning paths with practice, feedback loops, and clear competency signals for adults.",
+                    "Strengthens evaluation design, QA checkpoints, and portfolio-level improvements with stakeholder partners.",
                 ],
             },
             {
                 "title": "Stakeholder engagement and change enablement consulting",
                 "bullets": [
-                    "Supports adoption readiness through communication, governance alignment, and role-based enablement across teams.",
-                    "Connects learning initiatives to workflow realities, risk awareness, and leadership priorities for smoother execution.",
+                    "Aligns communication, governance, and role clarity so change initiatives land with less friction.",
+                    "Links programs to real workflows, risk awareness, and leadership priorities for sustainable uptake.",
                 ],
             },
         ],
