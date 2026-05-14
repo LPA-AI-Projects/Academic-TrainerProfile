@@ -562,12 +562,25 @@ def _truncate_list_strings(items: list[str], max_len: int) -> list[str]:
 
 
 def _derive_program_suggestions(raw: dict) -> list[str]:
+    exp_extra: list[str] = []
+    secs = raw.get("professional_experience_sections")
+    if isinstance(secs, list):
+        for it in secs:
+            if not isinstance(it, dict):
+                continue
+            t = str(it.get("title") or it.get("heading") or "").strip()
+            if t:
+                exp_extra.append(t)
+            for b in it.get("bullets") or it.get("points") or []:
+                if str(b or "").strip():
+                    exp_extra.append(str(b).strip())
     seeds = _dedupe_list(
         _as_string_list(raw.get("professional_titles"))
         + _as_string_list(raw.get("key_skills"))
         + _as_string_list(raw.get("core_competencies"))
         + _as_string_list(raw.get("training_delivered"))
         + _as_string_list(raw.get("professional_experience"))
+        + exp_extra
     )
     suggestions: list[str] = []
     for seed in seeds:
@@ -632,6 +645,48 @@ def _ensure_strengths_count(raw: dict, min_items: int = 10, max_items: int = 11)
     return _compact_list(out, max_items=max_items)
 
 
+def _normalize_professional_experience_blocks(raw: dict) -> tuple[list[dict[str, list[str]]], list[str]]:
+    """
+    Up to 3 brochure blocks: {title, bullets: [str, str]}.
+    Returns (sections, flat_lines) where flat_lines feeds legacy consumers and HTML fallback.
+    """
+    max_title = 100
+    max_bullet = 260
+    sections: list[dict[str, list[str]]] = []
+    raw_sections = raw.get("professional_experience_sections")
+    if isinstance(raw_sections, list):
+        for item in raw_sections[:3]:
+            if not isinstance(item, dict):
+                continue
+            title = re.sub(r"\s+", " ", str(item.get("title") or item.get("heading") or "")).strip()
+            if not title:
+                continue
+            br = item.get("bullets") or item.get("points") or item.get("bullet_points")
+            if not isinstance(br, list):
+                br = []
+            bullets: list[str] = []
+            for x in br:
+                s = re.sub(r"\s+", " ", str(x or "")).strip()
+                if s:
+                    bullets.append(_truncate_list_line(s, max_bullet))
+                if len(bullets) >= 2:
+                    break
+            while len(bullets) < 2:
+                bullets.append("")
+            bullets = bullets[:2]
+            sections.append({"title": _truncate_list_line(title, max_title), "bullets": bullets})
+    flat: list[str] = []
+    for sec in sections:
+        flat.append(sec["title"])
+        for b in sec["bullets"]:
+            if b.strip():
+                flat.append(b)
+    legacy = _dedupe_list(_as_string_list(raw.get("professional_experience")))
+    if not sections and legacy:
+        return [], legacy
+    return sections, flat
+
+
 def normalize_profile_payload(
     raw: dict,
     *,
@@ -672,8 +727,28 @@ def normalize_profile_payload(
     else:
         merged_td = model_td
     training_delivered = _compact_list(merged_td, max_items=14)
-    professional_experience = _dedupe_list(_as_string_list(raw.get("professional_experience")))
+    exp_sections, exp_flat = _normalize_professional_experience_blocks(raw)
+    professional_experience = exp_flat
     key_skills = _truncate_list_strings(_ensure_strengths_count(raw, min_items=10, max_items=11), 50)
+    industry_raw = _dedupe_list(_as_string_list(raw.get("industry_exposure")))
+    industry_exposure = _truncate_list_strings(_compact_list(industry_raw, max_items=4), 72)
+    if not industry_exposure:
+        industry_exposure = _truncate_list_strings(
+            _compact_list(_dedupe_list(_as_string_list(raw.get("core_competencies"))), max_items=4),
+            72,
+        )
+    sol_raw = _dedupe_list(_as_string_list(raw.get("solutions_delivered")))
+    solutions_delivered = _truncate_list_strings(_compact_list(sol_raw, max_items=4), 72)
+    if not solutions_delivered:
+        be = _dedupe_list(_as_string_list(raw.get("board_experience")))
+        if be:
+            solutions_delivered = _truncate_list_strings(_compact_list(be, max_items=4), 72)
+        else:
+            seeds = _dedupe_list(
+                _as_string_list(raw.get("programs_trained"))[:4]
+                + _as_string_list(raw.get("professional_titles"))[:3]
+            )
+            solutions_delivered = _truncate_list_strings(_compact_list(seeds, max_items=4), 72)
     awards_and_recognitions = _compact_list(_as_string_list(raw.get("awards_and_recognitions")), max_items=6)
     certificates = _compact_list(_as_string_list(raw.get("certificates")), max_items=6)
 
@@ -694,11 +769,14 @@ def normalize_profile_payload(
         "training_delivered": training_delivered,
         "education": _as_string_list(raw.get("education")),
         "professional_experience": professional_experience,
+        "professional_experience_sections": exp_sections,
         "core_competencies": _as_string_list(raw.get("core_competencies")),
         "certificates": certificates,
         "awards_and_recognitions": awards_and_recognitions,
         "board_experience": _as_string_list(raw.get("board_experience")),
         "key_skills": key_skills,
+        "industry_exposure": industry_exposure,
+        "solutions_delivered": solutions_delivered,
     }
     if not normalized["training_delivered"]:
         normalized["training_delivered"] = _compact_list(

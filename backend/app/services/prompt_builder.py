@@ -12,12 +12,20 @@ PROFILE_OUTPUT_SCHEMA = {
     "programs_trained": ["string"],
     "training_delivered": ["string"],
     "education": ["string"],
-    "professional_experience": ["Title | Place of Work (Year - Year)"],
+    "professional_experience_sections": [
+        {
+            "title": "string (strategic advisory-style header; max ~100 chars)",
+            "bullets": ["string (bullet 1; max ~260 chars)", "string (bullet 2; max ~260 chars)"],
+        }
+    ],
+    "professional_experience": [],
     "core_competencies": ["string"],
     "certificates": ["string"],
     "awards_and_recognitions": ["string"],
     "board_experience": ["string"],
     "key_skills": ["string (min 10 items)"],
+    "industry_exposure": ["string (exactly 4 items for INDUSTRY EXPOSURE; max 72 chars; see task rules)"],
+    "solutions_delivered": ["string (exactly 4 items for SOLUTIONS DELIVERED; max 72 chars; see task rules)"],
 }
 
 
@@ -53,9 +61,12 @@ def build_prompt(
             else []
         ),
         "Make course-domain relevance the main focus of profile, experience ordering, and skills (without copying modules verbatim).",
-        "Extract every professional role found in CV; do not omit, merge, or summarize away any role.",
-        "For professional_experience, keep one role per item and preserve title + organization clearly.",
-        "Do not include date ranges/month-year text in professional_experience items; omit year/date suffixes entirely.",
+        "SECTION — JSON key professional_experience_sections (brochure PROFESSIONAL EXPERIENCE): premium executive/advisory format, not employment-style CV roles.",
+        "professional_experience_sections: output at most 3 objects. Each object has title (string) and bullets (array of exactly 2 strings). Do not mention company names, organization names, locations, years, clients, or reporting structures in titles or bullets.",
+        "professional_experience_sections titles: strategic, consulting/advisory oriented, transformation-focused; aligned with trainer specialization and course outline when outline text exists; otherwise grounded only in CV + outline evidence. Avoid generic titles like Trainer, Instructor, Manager, or Employee.",
+        "professional_experience_sections bullets: each bullet enterprise-level and impactful; focus on advisory, transformation, enablement, strategy, capability development, optimization, or leadership support; reflect business impact not operational tasks; align with course outline topics when an outline is provided.",
+        "professional_experience_sections: C-suite and enterprise-focused; corporate proposal friendly; premium consultative tone; strategic not academic; modern workforce transformation positioning; avoid technical overload and repetitive wording across the three blocks.",
+        "professional_experience_sections: each title at most 100 characters; each bullet at most 260 characters. Set professional_experience to an empty array [].",
         "STRICT LENGTH RULES: full_name max 18 chars.",
         "Bio must be provided as bio_para1 and bio_para2, each 50-55 words.",
         "programs_trained: output between 18 and 24 points.",
@@ -82,11 +93,16 @@ def build_prompt(
             else []
         ),
         "training_delivered must be client/organization names or very short phrases only (no long sentences or narrative). Prefer 'Company – Region' style.",
+        "SECTION — JSON key industry_exposure (brochure heading INDUSTRY EXPOSURE): output exactly 4 strings. Do not mention company names, client names, or locations in these bullets.",
+        "industry_exposure: focus only on industries, business sectors, enterprise environments, and operational domains. Wording must align naturally with the course outline (when provided) and the trainer's specialization as evidenced in CV + outline; if unsupported by that evidence, omit rather than invent.",
+        "industry_exposure: enterprise-level, transformation-oriented phrasing; premium corporate and consulting-oriented tone; concise, strategic, proposal-friendly; GCC corporate proposal friendly; avoid academic phrasing and repetitive wording. Each item at most 72 characters.",
+        "SECTION — JSON key solutions_delivered (brochure heading SOLUTIONS DELIVERED): output exactly 4 strings. Do not mention company names, client names, or locations in these bullets.",
+        "solutions_delivered: focus on business solutions, transformation initiatives, capability domains, tools/frameworks, and strategic training applications. Align directly with course outline topics, tools, methodologies, and learning outcomes when outline text is present; otherwise ground only in CV-stated delivery and capability evidence.",
+        "solutions_delivered: modern, strategic, business-impact wording; executive-level positioning; avoid technical overload, academic phrasing, and repetition with industry_exposure or key_skills. Must NOT duplicate or paraphrase training_delivered org/client lines. Each item at most 72 characters.",
         "key_skills (used for STRENGTHS): exactly 10 or 11 points, never exceed 11. Each item at most 50 characters; one short phrase per line.",
         "Prefer clean competency tags (short skill phrases) instead of long program-style statements.",
         "Keep each key_skills point concise and CV/domain aligned; must fit one line in the fixed brochure (no wrapping paragraphs).",
-        "Do not repeat the same or near-duplicate wording across programs_trained, training_delivered, or key_skills.",
-        "professional_experience: include every CV role as its own item with complete wording; no ellipsis-based truncation.",
+        "Do not repeat the same or near-duplicate wording across programs_trained, training_delivered, industry_exposure, solutions_delivered, key_skills, or professional_experience_sections.",
         "awards_and_recognitions: max 6 items. Keep wording concise and avoid ellipsis-based truncation.",
         "Avoid repetition and generic filler. Prefer concise premium corporate wording.",
         *(

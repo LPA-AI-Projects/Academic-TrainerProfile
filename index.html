@@ -137,11 +137,37 @@
 
     /* Fixed A4 canvas (842pt tall); lists must not run under the footer bar */
     .p1-programs-clip { max-height: 308px; overflow: hidden; }
-    .p2-programs-clip { max-height: 250px; overflow: hidden; }
-    .p2-training-clip { max-height: 400px; overflow: hidden; }
-    .p2-strengths-clip { max-height: 428px; overflow: hidden; }
-    .p3-experience-clip { max-height: 308px; overflow: hidden; }
+    /* Page 2: programs band, then left (industry + solutions) + right (strengths) */
+    .p2-programs-clip { max-height: 210px; overflow: hidden; }
+    .p2-industry-clip { max-height: 130px; overflow: hidden; }
+    .p2-solutions-clip { max-height: 210px; overflow: hidden; }
+    .p2-strengths-clip { max-height: 360px; overflow: hidden; }
+    .p3-experience-clip { max-height: 318px; overflow: hidden; }
     .p3-awards-clip { max-height: 252px; overflow: hidden; }
+
+    /* Page 3 — structured professional experience (title + 2 bullets per block) */
+    #cv-p3-experience-root { margin-top: 6px; }
+    .cv-exp-block { margin-bottom: 10px; }
+    .cv-exp-block:last-child { margin-bottom: 0; }
+    .cv-exp-title {
+      font-weight: 700;
+      font-size: 12.5px;
+      line-height: 1.32;
+      color: #141414;
+      margin-bottom: 4px;
+    }
+    .cv-exp-bullets {
+      margin: 0;
+      padding-left: 16px;
+      list-style-type: disc;
+    }
+    .cv-exp-bullets li {
+      font-size: 11.5px;
+      line-height: 1.45;
+      margin-bottom: 3px;
+      color: #333;
+    }
+    .cv-exp-bullets li:last-child { margin-bottom: 0; }
 
     h1, h2, p { margin: 0; }
 
@@ -151,6 +177,14 @@
       font-weight: 700;
       font-size: 20px;
       line-height: 33.75px;
+    }
+
+    /* Page 2 section headings — compact caps to match brochure reference */
+    .title.title--caps {
+      font-size: 17px;
+      line-height: 1.2;
+      letter-spacing: 0.04em;
+      text-transform: uppercase;
     }
 
     .text12 { font-size: 12px; line-height: 19px; }
@@ -246,29 +280,41 @@
   <!-- ═══════ PAGE 2 ═══════ -->
   <section class="page" id="page2">
     <div class="canvas">
-    <div class="light" style="left:63px;top:-21px;width:542px;height:335px;"></div>
+    <!-- Tint behind continuation of PROGRAM TRAINED -->
+    <div class="light" style="left:63px;top:-21px;width:542px;height:228px;"></div>
 
-    <div id="cv-p2-programs-box" class="p2-programs-clip" style="position:absolute;left:89px;top:48px;width:366px;">
+    <div id="cv-p2-programs-box" class="p2-programs-clip" style="position:absolute;left:89px;top:48px;width:500px;">
       <ul id="cv-p2-programs-ul" class="text12"
           style="display:grid;gap:2px;line-height:17px;">
         <!-- filled dynamically -->
       </ul>
     </div>
 
-    <div class="light" style="left:355px;top:327px;width:255px;height:515px;"></div>
+    <!-- Right column tint (lavender) behind STRENGTHS — aligns with reference layout -->
+    <div class="light" style="left:308px;top:262px;width:255px;height:458px;"></div>
 
-    <div id="cv-p2-training-box" class="p2-training-clip" style="position:absolute;left:41px;top:384px;width:232px;">
-      <h2 class="title">TRAINING DELIVERED</h2>
-      <ul id="cv-p2-training-ul" class="text12"
-          style="display:grid;gap:4px;margin-top:10px;">
-        <!-- filled dynamically -->
-      </ul>
+    <!-- Left column: INDUSTRY EXPOSURE + SOLUTIONS DELIVERED (white page background) -->
+    <div id="cv-p2-left-column" style="position:absolute;left:41px;top:268px;width:262px;">
+      <div id="cv-p2-industry-box" class="p2-industry-clip">
+        <h2 class="title title--caps">INDUSTRY EXPOSURE</h2>
+        <ul id="cv-p2-industry-ul" class="text12"
+            style="margin-top:6px;display:grid;gap:3px;line-height:16px;padding-left:16px;">
+          <!-- filled dynamically -->
+        </ul>
+      </div>
+      <div id="cv-p2-solutions-box" class="p2-solutions-clip" style="margin-top:10px;">
+        <h2 class="title title--caps">SOLUTIONS DELIVERED</h2>
+        <ul id="cv-p2-solutions-ul" class="text12"
+            style="margin-top:6px;display:grid;gap:3px;line-height:16px;padding-left:16px;">
+          <!-- filled dynamically -->
+        </ul>
+      </div>
     </div>
 
-    <div id="cv-p2-strengths-box" class="p2-strengths-clip" style="position:absolute;left:389px;top:357px;width:177px;">
-      <h2 class="title">STRENGTHS</h2>
+    <div id="cv-p2-strengths-box" class="p2-strengths-clip" style="position:absolute;left:328px;top:278px;width:190px;">
+      <h2 class="title title--caps">STRENGTHS</h2>
       <ul id="cv-p2-strengths-ul" class="text12"
-          style="display:grid;gap:4px;margin-top:8px;">
+          style="display:grid;gap:4px;margin-top:8px;padding-left:16px;">
         <!-- filled dynamically -->
       </ul>
     </div>
@@ -285,11 +331,8 @@
   <section class="page" id="page3">
     <div class="canvas">
     <div id="cv-p3-experience-box" class="p3-experience-clip" style="position:absolute;left:41px;top:49px;width:488px;">
-      <h2 class="title">PROFESSIONAL EXPERIENCE</h2>
-      <ul id="cv-p3-experience-ul" class="text12"
-          style="display:grid;gap:2px;margin-top:8px;line-height:15px;">
-        <!-- filled dynamically -->
-      </ul>
+      <h2 class="title title--caps">PROFESSIONAL EXPERIENCE</h2>
+      <div id="cv-p3-experience-root" class="text12"></div>
     </div>
 
     <div class="light" style="left:41px;top:374px;width:568px;height:292px;"></div>
@@ -363,6 +406,25 @@
         return t;
       };
 
+      const removeExperienceOverflow = () => {
+        const root = document.getElementById('cv-p3-experience-root');
+        const box = document.getElementById('cv-p3-experience-box');
+        if (!root || !box) return;
+        while (box.scrollHeight > box.clientHeight && root.children.length) {
+          const lastBlock = root.lastElementChild;
+          if (!lastBlock) break;
+          const ul = lastBlock.querySelector('.cv-exp-bullets');
+          if (ul && ul.children.length > 0) {
+            ul.removeChild(ul.lastElementChild);
+            if (ul.children.length === 0) {
+              lastBlock.remove();
+            }
+          } else {
+            lastBlock.remove();
+          }
+        }
+      };
+
       const removeLastUntilFit = (listId, boxId) => {
         const list = document.getElementById(listId);
         const box  = document.getElementById(boxId);
@@ -377,12 +439,43 @@
         setList('cv-p2-programs-ul', programs.slice(14));
       };
 
+      const renderExperienceSections = (sections, legacyLines) => {
+        const root = document.getElementById('cv-p3-experience-root');
+        if (!root) return;
+        const blocks = Array.isArray(sections)
+          ? sections.filter((s) => s && (String(s.title || s.heading || '').trim() || (Array.isArray(s.bullets) && s.bullets.length)))
+          : [];
+        if (blocks.length) {
+          root.innerHTML = blocks.slice(0, 3).map((sec) => {
+            const title = clean(sec.title || sec.heading || '');
+            const bs = Array.isArray(sec.bullets) ? sec.bullets : (Array.isArray(sec.points) ? sec.points : []);
+            const li1 = clampLine(String(bs[0] || ''), 260);
+            const li2 = clampLine(String(bs[1] || ''), 260);
+            const items = [li1, li2].filter(Boolean);
+            if (!title && !items.length) return '';
+            const lis = items.map((t) => `<li>${esc(t)}</li>`).join('');
+            const ulHtml = lis ? `<ul class="cv-exp-bullets">${lis}</ul>` : '';
+            return `<div class="cv-exp-block"><div class="cv-exp-title">${esc(title)}</div>${ulHtml}</div>`;
+          }).filter(Boolean).join('');
+          return;
+        }
+        const lines = (legacyLines || [])
+          .map(formatExperience)
+          .filter(Boolean)
+          .map((x) => clean(x))
+          .slice(0, 12);
+        root.innerHTML = lines.length
+          ? `<ul class="text12" style="margin:0;padding-left:18px;display:grid;gap:2px;line-height:15px;">${lines.map((v) => `<li>${esc(v)}</li>`).join('')}</ul>`
+          : '';
+      };
+
       const runOverflowCleaner = () => {
         removeLastUntilFit('cv-p1-programs-ul', 'cv-p1-programs-box');
         removeLastUntilFit('cv-p2-programs-ul', 'cv-p2-programs-box');
-        removeLastUntilFit('cv-p2-training-ul', 'cv-p2-training-box');
+        removeLastUntilFit('cv-p2-industry-ul', 'cv-p2-industry-box');
+        removeLastUntilFit('cv-p2-solutions-ul', 'cv-p2-solutions-box');
         removeLastUntilFit('cv-p2-strengths-ul', 'cv-p2-strengths-box');
-        removeLastUntilFit('cv-p3-experience-ul', 'cv-p3-experience-box');
+        removeExperienceOverflow();
         removeLastUntilFit('cv-p3-awards-ul', 'cv-p3-awards-box');
       };
 
@@ -404,9 +497,29 @@
         const programs = topItems(p.programs_trained, 24).map((x) => clampLine(x, 72));
         distributeProgramsAcrossPages(programs);
 
+        const industrySrc =
+          Array.isArray(p.industry_exposure) && p.industry_exposure.length
+            ? p.industry_exposure
+            : uniq(p.core_competencies || []);
         setList(
-          'cv-p2-training-ul',
-          topItems(p.training_delivered, 14).map((x) => clean(x)),
+          'cv-p2-industry-ul',
+          topItems(industrySrc, 4).map((x) => clampLine(x, 72)),
+        );
+
+        let solutionsSrc = [];
+        if (Array.isArray(p.solutions_delivered) && p.solutions_delivered.length) {
+          solutionsSrc = p.solutions_delivered;
+        } else if (Array.isArray(p.board_experience) && p.board_experience.length) {
+          solutionsSrc = p.board_experience;
+        } else {
+          solutionsSrc = uniq([
+            ...(p.programs_trained || []).slice(0, 6),
+            ...(p.professional_titles || []),
+          ]);
+        }
+        setList(
+          'cv-p2-solutions-ul',
+          topItems(solutionsSrc, 4).map((x) => clampLine(x, 72)),
         );
 
         const skills = p.key_skills?.length ? p.key_skills : p.core_competencies;
@@ -415,12 +528,9 @@
           topItems(skills, 11).map((x) => clampLine(x, 50)),
         );
 
-        setList(
-          'cv-p3-experience-ul',
-          (p.professional_experience || [])
-            .map(formatExperience)
-            .filter(Boolean)
-            .map((x) => clean(x)),
+        renderExperienceSections(
+          p.professional_experience_sections,
+          p.professional_experience,
         );
 
         const awards = [

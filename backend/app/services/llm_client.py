@@ -31,6 +31,29 @@ def _mock_response() -> dict[str, Any]:
         ],
         "education": [],
         "professional_experience": [],
+        "professional_experience_sections": [
+            {
+                "title": "Corporate Learning & Workforce Enablement Strategist",
+                "bullets": [
+                    "Leads enterprise-wide capability programs that align learning outcomes with business priorities and measurable performance gains.",
+                    "Facilitates executive and practitioner cohorts through practical frameworks that translate strategy into day-to-day operational excellence.",
+                ],
+            },
+            {
+                "title": "Instructional Design & Assessment Innovation Advisor",
+                "bullets": [
+                    "Designs structured learning journeys with clear competency signals, practice application, and feedback loops that sustain behavior change.",
+                    "Partners with stakeholders to strengthen evaluation design, quality assurance, and continuous improvement across training portfolios.",
+                ],
+            },
+            {
+                "title": "Stakeholder Engagement & Change Enablement Consultant",
+                "bullets": [
+                    "Supports adoption and change readiness through clear communication, governance alignment, and role-based enablement across teams.",
+                    "Enables cross-functional collaboration by connecting learning initiatives to workflow realities, risk awareness, and leadership priorities.",
+                ],
+            },
+        ],
         "core_competencies": [
             "Instructional design",
             "Facilitation",
@@ -51,6 +74,18 @@ def _mock_response() -> dict[str, Any]:
             "Team building",
             "Needs analysis",
             "Learning impact measurement",
+        ],
+        "industry_exposure": [
+            "Corporate & Professional Services",
+            "Government & Public Sector Programs",
+            "Financial Services & Banking",
+            "Education & Workforce Development",
+        ],
+        "solutions_delivered": [
+            "Leadership & Team Effectiveness Workshops",
+            "Business Communication & Client Excellence",
+            "Assessment Design & Learning Measurement",
+            "Stakeholder Engagement & Change Enablement",
         ],
     }
 
