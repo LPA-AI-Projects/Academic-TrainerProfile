@@ -733,24 +733,24 @@ def normalize_profile_payload(
     professional_experience = exp_flat
     key_skills = _truncate_list_strings(_ensure_strengths_count(raw, min_items=10, max_items=11), 50)
     industry_raw = _dedupe_list(_as_string_list(raw.get("industry_exposure")))
-    industry_exposure = _truncate_list_strings(_compact_list(industry_raw, max_items=4), 72)
+    industry_exposure = _truncate_list_strings(_compact_list(industry_raw, max_items=5), 72)
     if not industry_exposure:
         industry_exposure = _truncate_list_strings(
-            _compact_list(_dedupe_list(_as_string_list(raw.get("core_competencies"))), max_items=4),
+            _compact_list(_dedupe_list(_as_string_list(raw.get("core_competencies"))), max_items=5),
             72,
         )
     sol_raw = _dedupe_list(_as_string_list(raw.get("solutions_delivered")))
-    solutions_delivered = _truncate_list_strings(_compact_list(sol_raw, max_items=4), 72)
+    solutions_delivered = _truncate_list_strings(_compact_list(sol_raw, max_items=5), 72)
     if not solutions_delivered:
         be = _dedupe_list(_as_string_list(raw.get("board_experience")))
         if be:
-            solutions_delivered = _truncate_list_strings(_compact_list(be, max_items=4), 72)
+            solutions_delivered = _truncate_list_strings(_compact_list(be, max_items=5), 72)
         else:
             seeds = _dedupe_list(
-                _as_string_list(raw.get("programs_trained"))[:4]
+                _as_string_list(raw.get("programs_trained"))[:5]
                 + _as_string_list(raw.get("professional_titles"))[:3]
             )
-            solutions_delivered = _truncate_list_strings(_compact_list(seeds, max_items=4), 72)
+            solutions_delivered = _truncate_list_strings(_compact_list(seeds, max_items=5), 72)
     awards_and_recognitions = _compact_list(_as_string_list(raw.get("awards_and_recognitions")), max_items=6)
     certificates = _compact_list(_as_string_list(raw.get("certificates")), max_items=6)
 

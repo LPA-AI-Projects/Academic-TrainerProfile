@@ -80,12 +80,14 @@ def _mock_response() -> dict[str, Any]:
             "Government and public sector program delivery",
             "Financial services and banking transformation contexts",
             "Education and workforce development ecosystems",
+            "Healthcare and regulated operations contexts",
         ],
         "solutions_delivered": [
             "Leadership and team effectiveness workshop programs",
             "Business communication and client excellence pathways",
             "Assessment design and learning measurement frameworks",
             "Stakeholder engagement and change enablement playbooks",
+            "Digital fluency and productivity enablement programs",
         ],
     }
 

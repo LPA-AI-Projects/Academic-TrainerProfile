@@ -139,9 +139,9 @@
     .p1-programs-clip { max-height: 308px; overflow: hidden; }
     /* Page 2: programs band, then left (industry + solutions) + right (strengths) */
     .p2-programs-clip { max-height: 210px; overflow: hidden; }
-    .p2-industry-clip { max-height: 152px; overflow: hidden; }
-    .p2-solutions-clip { max-height: 210px; overflow: hidden; }
-    .p2-strengths-clip { max-height: 360px; overflow: hidden; }
+    .p2-industry-clip { max-height: 180px; overflow: hidden; }
+    .p2-solutions-clip { max-height: 235px; overflow: hidden; }
+    .p2-strengths-clip { max-height: 428px; overflow: hidden; }
     /* Ends above awards band (awards box top ~419px); prompt keeps bullets to ~2 lines each */
     .p3-experience-clip { max-height: 360px; overflow: hidden; }
     .p3-awards-clip { max-height: 252px; overflow: hidden; }
@@ -318,23 +318,23 @@
     <!-- Left column: INDUSTRY EXPOSURE + SOLUTIONS DELIVERED (white page background) -->
     <div id="cv-p2-left-column" style="position:absolute;left:41px;top:268px;width:262px;">
       <div id="cv-p2-industry-box" class="p2-industry-clip">
-        <h2 class="title title--section">Industry exposure</h2>
+        <h2 class="title title--section">INDUSTRY EXPOSURE</h2>
         <ul id="cv-p2-industry-ul" class="text12"
-            style="margin-top:6px;display:grid;gap:3px;line-height:16px;padding-left:16px;">
+            style="margin-top:6px;display:grid;gap:4px;line-height:16px;padding-left:16px;">
           <!-- filled dynamically -->
         </ul>
       </div>
       <div id="cv-p2-solutions-box" class="p2-solutions-clip" style="margin-top:10px;">
-        <h2 class="title title--section">Solutions delivered</h2>
+        <h2 class="title title--section">SOLUTIONS DELIVERED</h2>
         <ul id="cv-p2-solutions-ul" class="text12"
-            style="margin-top:6px;display:grid;gap:3px;line-height:16px;padding-left:16px;">
+            style="margin-top:6px;display:grid;gap:4px;line-height:16px;padding-left:16px;">
           <!-- filled dynamically -->
         </ul>
       </div>
     </div>
 
     <div id="cv-p2-strengths-box" class="p2-strengths-clip" style="position:absolute;left:328px;top:278px;width:190px;">
-      <h2 class="title title--section">Strengths</h2>
+      <h2 class="title title--section">STRENGTHS</h2>
       <ul id="cv-p2-strengths-ul" class="text12"
           style="display:grid;gap:4px;margin-top:8px;padding-left:16px;">
         <!-- filled dynamically -->
@@ -353,7 +353,7 @@
   <section class="page" id="page3">
     <div class="canvas">
     <div id="cv-p3-experience-box" class="p3-experience-clip" style="position:absolute;left:41px;top:49px;width:488px;">
-      <h2 class="title title--section">Professional experience</h2>
+      <h2 class="title title--section">PROFESSIONAL EXPERIENCE</h2>
       <div id="cv-p3-experience-root" class="text12"></div>
     </div>
 
@@ -523,7 +523,7 @@
             : uniq(p.core_competencies || []);
         setList(
           'cv-p2-industry-ul',
-          topItems(industrySrc, 4).map((x) => clampLine(x, 72)),
+          topItems(industrySrc, 5).map((x) => clampLine(x, 72)),
         );
 
         let solutionsSrc = [];
@@ -539,7 +539,7 @@
         }
         setList(
           'cv-p2-solutions-ul',
-          topItems(solutionsSrc, 4).map((x) => clampLine(x, 72)),
+          topItems(solutionsSrc, 5).map((x) => clampLine(x, 72)),
         );
 
         const skills = p.key_skills?.length ? p.key_skills : p.core_competencies;

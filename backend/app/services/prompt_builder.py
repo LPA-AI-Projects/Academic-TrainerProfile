@@ -27,8 +27,8 @@ PROFILE_OUTPUT_SCHEMA = {
     "awards_and_recognitions": ["string"],
     "board_experience": ["string"],
     "key_skills": ["string (min 10 items)"],
-    "industry_exposure": ["string (exactly 4 items; Title Case or sentence case; never ALL CAPS; max 72 chars; see task rules)"],
-    "solutions_delivered": ["string (exactly 4 items; Title Case or sentence case; never ALL CAPS; max 72 chars; see task rules)"],
+    "industry_exposure": ["string (exactly 5 items; Title Case or sentence case; never ALL CAPS; max 72 chars; see task rules)"],
+    "solutions_delivered": ["string (exactly 5 items; Title Case or sentence case; never ALL CAPS; max 72 chars; see task rules)"],
 }
 
 
@@ -100,11 +100,11 @@ def build_prompt(
             else []
         ),
         "training_delivered must be client/organization names or very short phrases only (no long sentences or narrative). Prefer 'Company – Region' style.",
-        "SECTION — JSON key industry_exposure (brochure section 'Industry exposure'): output exactly 4 strings. Do not mention company names, client names, or locations in these bullets.",
+        "SECTION — JSON key industry_exposure (brochure section INDUSTRY EXPOSURE): output exactly 5 strings. Do not mention company names, client names, or locations in these bullets.",
         "industry_exposure — casing: never use ALL CAPS. Use Title Case (capitalize major words) or sentence case for each string.",
         "industry_exposure: focus only on industries, business sectors, enterprise environments, and operational domains. Wording must align naturally with the course outline (when provided) and the trainer's specialization as evidenced in CV + outline; if unsupported by that evidence, omit rather than invent.",
         "industry_exposure: enterprise-level, transformation-oriented phrasing; premium corporate and consulting-oriented tone; concise, strategic, proposal-friendly; GCC corporate proposal friendly; avoid academic phrasing and repetitive wording. Each item at most 72 characters.",
-        "SECTION — JSON key solutions_delivered (brochure section 'Solutions delivered'): output exactly 4 strings. Do not mention company names, client names, or locations in these bullets.",
+        "SECTION — JSON key solutions_delivered (brochure section SOLUTIONS DELIVERED): output exactly 5 strings. Do not mention company names, client names, or locations in these bullets.",
         "solutions_delivered — casing: never use ALL CAPS. Use Title Case or sentence case for each string.",
         "solutions_delivered: focus on business solutions, transformation initiatives, capability domains, tools/frameworks, and strategic training applications. Align directly with course outline topics, tools, methodologies, and learning outcomes when outline text is present; otherwise ground only in CV-stated delivery and capability evidence.",
         "solutions_delivered: modern, strategic, business-impact wording; executive-level positioning; avoid technical overload, academic phrasing, and repetition with industry_exposure or key_skills. Must NOT duplicate or paraphrase training_delivered org/client lines. Each item at most 72 characters.",
