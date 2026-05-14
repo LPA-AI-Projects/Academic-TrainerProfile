@@ -142,17 +142,20 @@
     .p2-industry-clip { max-height: 152px; overflow: hidden; }
     .p2-solutions-clip { max-height: 210px; overflow: hidden; }
     .p2-strengths-clip { max-height: 360px; overflow: hidden; }
-    .p3-experience-clip { max-height: 340px; overflow: hidden; }
+    /* Ends above awards band (awards box top ~419px); prompt keeps bullets to ~2 lines each */
+    .p3-experience-clip { max-height: 360px; overflow: hidden; }
     .p3-awards-clip { max-height: 252px; overflow: hidden; }
 
-    /* Page 3 — professional experience: square marker per role, round sub-bullets, 2 lines each */
+    /* Page 3 — professional experience: square marker per role (outer li), round sub-bullets (inner li) */
     #cv-p3-experience-root { margin-top: 6px; }
     ul.cv-exp-outer {
       list-style-type: square;
+      list-style-position: outside;
       margin: 0;
-      padding-left: 16px;
+      padding-left: 18px;
     }
     li.cv-exp-item {
+      display: list-item;
       margin-bottom: 9px;
       padding-left: 2px;
     }
@@ -166,19 +169,17 @@
       text-transform: none;
     }
     .cv-exp-bullets {
-      margin: 0;
-      padding-left: 14px;
+      margin: 0.25em 0 0 0;
+      padding-left: 18px;
       list-style-type: disc;
+      list-style-position: outside;
     }
     .cv-exp-bullets li {
+      display: list-item;
       font-size: 11.5px;
       line-height: 1.45;
       margin-bottom: 4px;
       color: #333;
-      display: -webkit-box;
-      -webkit-box-orient: vertical;
-      -webkit-line-clamp: 2;
-      overflow: hidden;
       word-break: break-word;
     }
     .cv-exp-bullets li:last-child { margin-bottom: 0; }
@@ -431,21 +432,9 @@
         const root = document.getElementById('cv-p3-experience-root');
         const box = document.getElementById('cv-p3-experience-box');
         if (!root || !box) return;
+        /* Structured blocks: never drop bullets (copy is length-controlled in the prompt). */
+        if (root.querySelector('ul.cv-exp-outer')) return;
         while (box.scrollHeight > box.clientHeight) {
-          const outer = root.querySelector('ul.cv-exp-outer');
-          if (outer && outer.children.length) {
-            const lastLi = outer.lastElementChild;
-            if (!lastLi) break;
-            const ul = lastLi.querySelector('.cv-exp-bullets');
-            if (ul && ul.children.length > 0) {
-              ul.removeChild(ul.lastElementChild);
-              if (ul.children.length === 0) lastLi.remove();
-            } else {
-              lastLi.remove();
-            }
-            if (!outer.children.length) outer.remove();
-            continue;
-          }
           const flatUl = root.querySelector('ul.text12');
           if (flatUl && flatUl.children.length) {
             flatUl.removeChild(flatUl.lastElementChild);
@@ -479,8 +468,8 @@
           const inner = blocks.slice(0, 3).map((sec) => {
             const title = clean(sec.title || sec.heading || '');
             const bs = Array.isArray(sec.bullets) ? sec.bullets : (Array.isArray(sec.points) ? sec.points : []);
-            const li1 = clampLine(String(bs[0] || ''), 200);
-            const li2 = clampLine(String(bs[1] || ''), 200);
+            const li1 = clean(String(bs[0] || ''));
+            const li2 = clean(String(bs[1] || ''));
             const items = [li1, li2].filter(Boolean);
             if (!title && !items.length) return '';
             const lis = items.map((t) => `<li>${esc(t)}</li>`).join('');

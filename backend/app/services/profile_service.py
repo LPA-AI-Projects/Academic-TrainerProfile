@@ -651,7 +651,6 @@ def _normalize_professional_experience_blocks(raw: dict) -> tuple[list[dict[str,
     Returns (sections, flat_lines) where flat_lines feeds legacy consumers and HTML fallback.
     """
     max_title = 100
-    max_bullet = 200
     sections: list[dict[str, list[str]]] = []
     raw_sections = raw.get("professional_experience_sections")
     if isinstance(raw_sections, list):
@@ -668,7 +667,10 @@ def _normalize_professional_experience_blocks(raw: dict) -> tuple[list[dict[str,
             for x in br:
                 s = re.sub(r"\s+", " ", str(x or "")).strip()
                 if s:
-                    bullets.append(_truncate_list_line(s, max_bullet))
+                    # Full text in brochure (no ellipsis); generous cap only for pathological model output.
+                    if len(s) > 2500:
+                        s = s[:2500].rsplit(" ", 1)[0].strip()
+                    bullets.append(s)
                 if len(bullets) >= 2:
                     break
             while len(bullets) < 2:

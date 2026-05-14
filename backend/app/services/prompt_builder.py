@@ -16,8 +16,8 @@ PROFILE_OUTPUT_SCHEMA = {
         {
             "title": "string (strategic advisory-style header; Title Case; max ~100 chars; never ALL CAPS)",
             "bullets": [
-                "string (bullet 1: max ~200 chars; must read as at most two brochure lines)",
-                "string (bullet 2: max ~200 chars; must read as at most two brochure lines)",
+                "string (bullet 1: complete sentence ending in a period; target 120–165 characters so it wraps to at most two lines in the brochure column; never exceed 180 characters)",
+                "string (bullet 2: same length discipline as bullet 1)",
             ],
         }
     ],
@@ -68,10 +68,9 @@ def build_prompt(
         "professional_experience_sections: output exactly 3 objects. Each object has title (string) and bullets (array of exactly 2 strings). Do not mention company names, organization names, locations, years, clients, or reporting structures in titles or bullets.",
         "professional_experience_sections — casing: never use ALL CAPS or shouting headline casing. Use Title Case for each title string. Use sentence case or Title Case for each bullet string.",
         "professional_experience_sections titles: strategic, consulting/advisory oriented, transformation-focused; aligned with trainer specialization and course outline when outline text exists; otherwise grounded only in CV + outline evidence. Avoid generic titles like Trainer, Instructor, Manager, or Employee.",
-        "professional_experience_sections bullets: each bullet enterprise-level and impactful; focus on advisory, transformation, enablement, strategy, capability development, optimization, or leadership support; reflect business impact not operational tasks; align with course outline topics when an outline is provided.",
-        "professional_experience_sections bullets — length: each bullet must be written so it fits at most two lines in the fixed brochure layout (target at most ~200 characters per bullet; no third line of wrapping).",
-        "professional_experience_sections: C-suite and enterprise-focused; corporate proposal friendly; premium consultative tone; strategic not academic; modern workforce transformation positioning; avoid technical overload and repetitive wording across the three blocks.",
-        "professional_experience_sections: each title at most 100 characters; each bullet at most 200 characters. Set professional_experience to an empty array [].",
+        "professional_experience_sections bullets: each bullet must be a single complete sentence (or two very short sentences) ending with proper punctuation. Write so each bullet naturally wraps to at most two lines in a fixed ~488px-wide column at ~11.5px body text (target roughly 120–165 characters per bullet; hard maximum 180 characters). Do not write long multi-clause paragraphs, stacked lists, or semicolon-heavy chains that require a third line.",
+        "professional_experience_sections bullets — display policy: the brochure renders full bullet text with round list markers (no ellipsis truncation). If a bullet is too long it will overflow the layout; therefore obey the character targets strictly and revise wording until each bullet fits two lines without relying on truncation.",
+        "professional_experience_sections: each title at most 100 characters; each bullet at most 180 characters. Set professional_experience to an empty array [].",
         "STRICT LENGTH RULES: full_name max 18 chars.",
         "Bio must be provided as bio_para1 and bio_para2, each 50-55 words.",
         "programs_trained: output between 18 and 24 points.",
