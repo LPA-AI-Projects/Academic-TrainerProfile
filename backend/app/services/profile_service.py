@@ -1064,26 +1064,14 @@ async def generate_from_parent_with_trainers(
                     len(outline_trimmed),
                     sum(len(x) for x in outline_trimmed),
                 )
-                td_field = (settings.zoho_trainer_training_delivered_field_api_name or "").strip()
-                crm_training_lines: list[str] = []
-                if td_field:
-                    raw_td = get_scalar_field_str(trainer_row, td_field)
-                    crm_training_lines = _parse_multiline_zoho_text(raw_td)
-                    logger.info(
-                        "GEN_PARENT_TRAINING_DELIVERED_CRM trainer_id=%s field=%s line_count=%s",
-                        trainer_id,
-                        td_field,
-                        len(crm_training_lines),
-                    )
                 req_prog_hints = _payload_program_hints(payload)
-                td_hints = crm_training_lines if crm_training_lines else None
 
                 prompt = build_prompt(
                     cv_trimmed,
                     outline_trimmed,
                     trainer_heading_name=heading_label,
                     programs_trained_hints=req_prog_hints,
-                    training_delivered_hints=td_hints,
+                    training_delivered_hints=None,
                 )
 
                 cv_stored = f"zoho://record/{trainer_mod}/{cv_f}/{cv_file_id}"
@@ -1106,7 +1094,6 @@ async def generate_from_parent_with_trainers(
                         "trainer_unique_code": heading_label,
                         "drive_course_name": parent_drive_course,
                         "programs_trained_hints": req_prog_hints or [],
-                        "training_delivered_crm_lines": len(crm_training_lines),
                     },
                 )
                 db.add(job)
@@ -1128,7 +1115,7 @@ async def generate_from_parent_with_trainers(
                     t0,
                     trainer_display_name=heading_label,
                     programs_trained_hints=req_prog_hints,
-                    training_delivered_hints=td_hints,
+                    training_delivered_hints=None,
                 )
                 db.refresh(job)
                 jobs_out.append(job)
@@ -1179,7 +1166,6 @@ async def generate_and_store_profile(
     )
     temp_zoho_paths: list[Path] = []
     stored_outline_refs: list[str] = list(payload.course_outline_paths)
-    crm_training_lines: list[str] = []
     logger.info(
         "GEN_START zoho_record_id=%s cv_present=%s outline_paths=%s provider=%s model=%s",
         payload.zoho_record_id,
@@ -1253,27 +1239,6 @@ async def generate_and_store_profile(
                     outline_field,
                 )
 
-        td_field = (settings.zoho_trainer_training_delivered_field_api_name or "").strip()
-        if mod and td_field:
-            rid_td = (payload.zoho_record_id or "").strip()
-            try:
-                tr_rec = fetch_crm_record(mod, rid_td)
-                raw_td = get_scalar_field_str(tr_rec, td_field)
-                crm_training_lines = _parse_multiline_zoho_text(raw_td)
-                logger.info(
-                    "GEN_TRAINING_DELIVERED_FROM_CRM zoho_record_id=%s field=%s line_count=%s",
-                    rid_td,
-                    td_field,
-                    len(crm_training_lines),
-                )
-            except Exception as exc:
-                logger.warning(
-                    "GEN_TRAINING_DELIVERED_CRM_FETCH_FAILED zoho_record_id=%s field=%s err=%s",
-                    rid_td,
-                    td_field,
-                    exc,
-                )
-
         t_read = time.perf_counter()
         cv_text = read_text_from_path(local_cv)
         outlines = [read_text_from_path(path) for path in outline_read_paths]
@@ -1296,13 +1261,12 @@ async def generate_and_store_profile(
                     logger.warning("GEN_TEMP_REMOVE_FAILED path=%s error=%s", temp_zoho_path, exc)
 
     req_prog_hints = _payload_program_hints(payload)
-    td_hints = crm_training_lines if crm_training_lines else None
 
     prompt = build_prompt(
         cv_trimmed,
         outline_trimmed,
         programs_trained_hints=req_prog_hints,
-        training_delivered_hints=td_hints,
+        training_delivered_hints=None,
     )
 
     drive_cn = (payload.course_name or "").strip() or settings.google_drive_fallback_course_name
@@ -1320,7 +1284,6 @@ async def generate_and_store_profile(
             "outline_count": len(outline_trimmed),
             "drive_course_name": drive_cn,
             "programs_trained_hints": req_prog_hints or [],
-            "training_delivered_crm_lines": len(crm_training_lines),
         },
     )
     db.add(job)
@@ -1337,6 +1300,6 @@ async def generate_and_store_profile(
         t0,
         trainer_display_name=None,
         programs_trained_hints=req_prog_hints,
-        training_delivered_hints=td_hints,
+        training_delivered_hints=None,
     )
     return [job]

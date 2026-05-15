@@ -143,8 +143,8 @@ class RefineProfileRequest(BaseModel):
         merged_lookup = (u or t).strip() or None
         if not z:
             raise ValueError("zoho_record_id is required for refine.")
-        if not merged_lookup:
-            raise ValueError("unique_code or title (Trainer_Unique_Code) is required for refine.")
+        # unique_code is optional when only one completed job exists for zoho_record_id;
+        # _resolve_completed_trainer_job returns 400 if multiple trainers match without a code.
         r = (self.refine or "").strip()
         f = (self.feedback or "").strip()
         merged_refine = r or f
@@ -153,7 +153,7 @@ class RefineProfileRequest(BaseModel):
         if len(merged_refine) < 10:
             raise ValueError("Refine instruction must be at least 10 characters.")
         self.zoho_record_id = z or None
-        self.unique_code = merged_lookup
+        self.unique_code = merged_lookup  # may be None
         self.title = None
         self.refine = merged_refine
         self.feedback = None

@@ -20,6 +20,7 @@ from sqlalchemy.orm import Session
 
 from .config import get_settings
 from .database import Base, engine, get_db
+from .utils.http_errors import PostOnlyAccessLogFilter, validation_errors_for_response
 from .utils.logger import get_logger
 from .db_migrations import apply_light_migrations
 from .models import TrainerProfileJob
@@ -321,7 +322,9 @@ def startup() -> None:
     )
     logging.getLogger("uvicorn").setLevel(level)
     logging.getLogger("uvicorn.error").setLevel(level)
-    logging.getLogger("uvicorn.access").setLevel(level)
+    access_logger = logging.getLogger("uvicorn.access")
+    access_logger.setLevel(level)
+    access_logger.addFilter(PostOnlyAccessLogFilter())
 
     logger.info(
         "API_STARTUP log_level=%s app_env=%s api_key_required=%s",
@@ -473,7 +476,7 @@ async def generate_profile(request: Request, db: Session = Depends(get_db)):
             prompt_version=(form_data.get("prompt_version") or "v1").strip() or "v1",
         )
     except ValidationError as exc:
-        raise HTTPException(status_code=422, detail=exc.errors()) from exc
+        raise HTTPException(status_code=422, detail=validation_errors_for_response(exc)) from exc
 
     logger.info(
         "API_GENERATE_FORM_URLENC_REQUEST zoho_record_id=%s cv_present=%s outlines=%s provider=%s model=%s keys=%s",
@@ -520,16 +523,17 @@ async def _parse_refine_payload_from_request(request: Request) -> RefineProfileR
     try:
         return RefineProfileRequest(**raw)
     except ValidationError as exc:
-        raise HTTPException(status_code=422, detail=exc.errors()) from exc
+        raise HTTPException(status_code=422, detail=validation_errors_for_response(exc)) from exc
 
 
 async def _refine_profile_impl(
     payload: RefineProfileRequest, request: Request, db: Session
 ) -> GenerateProfileResponse:
     """
-    Refine the stored profile JSON (LLM returns updated JSON merged onto the existing payload), then re-run PDF/Drive/Zoho.
+    Refine INDUSTRY EXPOSURE and SOLUTIONS DELIVERED on the stored profile, then re-run PDF/Drive/Zoho.
 
-    Requires ``zoho_record_id``, ``unique_code`` / ``title``, and a refine instruction (min 10 characters).
+    Requires ``zoho_record_id`` and a refine instruction (min 10 characters).
+    ``unique_code`` / ``title`` are required only when multiple completed jobs share the same parent id.
 
     Zoho PDF attachment name is ``{Trainer_Unique_Code}_vN``: append ``_vN`` to target a specific slot.
     """
@@ -647,7 +651,7 @@ async def _refine_profile_impl(
     "/api/v1/profiles/refine",
     response_model=GenerateProfileResponse,
     dependencies=[optional_api_key],
-    summary="Refine profile narrative (zoho_record_id + Trainer_Unique_Code, refine or feedback)",
+    summary="Refine industry_exposure and solutions_delivered (zoho_record_id; optional unique_code)",
 )
 async def refine_profile(request: Request, db: Session = Depends(get_db)):
     payload = await _parse_refine_payload_from_request(request)
@@ -817,7 +821,7 @@ async def generate_profile_form(
     except ValidationError as exc:
         for p in temp_uploads:
             p.unlink(missing_ok=True)
-        raise HTTPException(status_code=422, detail=exc.errors()) from exc
+        raise HTTPException(status_code=422, detail=validation_errors_for_response(exc)) from exc
     except HTTPException:
         for p in temp_uploads:
             p.unlink(missing_ok=True)

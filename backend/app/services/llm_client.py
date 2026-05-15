@@ -172,11 +172,24 @@ def generate_profile_json(
     return payload, resolved_provider, raw
 
 
+# Refine API only updates brochure page-2 left column lists (not training_delivered or narrative).
+REFINE_MERGE_KEYS = ("industry_exposure", "solutions_delivered")
+
+REFINE_OUTPUT_SCHEMA = {
+    "industry_exposure": [
+        "string (exactly 5 items; Title Case or sentence case; never ALL CAPS; max 72 chars each)"
+    ],
+    "solutions_delivered": [
+        "string (exactly 5 items; Title Case or sentence case; never ALL CAPS; max 72 chars each)"
+    ],
+}
+
+
 def _merge_refined_profile_dict(existing: dict[str, Any], refined: dict[str, Any]) -> dict[str, Any]:
     out = dict(existing)
-    for k, v in refined.items():
-        if v is not None:
-            out[k] = v
+    for k in REFINE_MERGE_KEYS:
+        if k in refined and refined[k] is not None:
+            out[k] = refined[k]
     return out
 
 
@@ -189,7 +202,7 @@ def refine_generated_profile_json(
     model_name: str | None = None,
 ) -> tuple[dict[str, Any], str, str]:
     """
-    Apply refinement instructions to the full stored profile JSON.
+    Apply refinement to ``industry_exposure`` and ``solutions_delivered`` only.
 
     Returns ``(merged_profile, resolved_provider, raw_model_output)``.
     """
@@ -202,22 +215,31 @@ def refine_generated_profile_json(
     else:
         resolved_model = settings.openai_model
 
-    schema_hint = json.dumps(PROFILE_OUTPUT_SCHEMA, indent=2, ensure_ascii=False)
-    current_json = json.dumps(existing_profile, indent=2, ensure_ascii=False)
+    schema_hint = json.dumps(REFINE_OUTPUT_SCHEMA, indent=2, ensure_ascii=False)
+    context = {
+        "industry_exposure": existing_profile.get("industry_exposure") or [],
+        "solutions_delivered": existing_profile.get("solutions_delivered") or [],
+        "professional_titles": existing_profile.get("professional_titles") or [],
+        "programs_trained": (existing_profile.get("programs_trained") or [])[:8],
+    }
+    current_json = json.dumps(context, indent=2, ensure_ascii=False)
     prompt = (
-        "You are editing an EXISTING trainer profile JSON payload.\n\n"
-        "CURRENT PROFILE JSON:\n"
+        "You are editing INDUSTRY EXPOSURE and SOLUTIONS DELIVERED lists on a trainer brochure.\n\n"
+        "CURRENT LISTS (context only — do not return other profile fields):\n"
         f"{current_json}\n\n"
         "REFINE INSTRUCTION:\n"
         f"{refine_instruction}\n\n"
-        f"Trainer label context (heading only; keep narrative third-person): {trainer_label}\n\n"
+        f"Trainer label (context only): {trainer_label}\n\n"
         "RULES:\n"
         "- Return ONE JSON object only (no markdown).\n"
-        "- Modify only fields necessary to satisfy the instruction.\n"
-        "- Preserve structure compatible with the reference schema.\n"
-        "- Do NOT invent employers, credentials, dates, or certifications not grounded in the current JSON "
-        "or the instruction.\n\n"
-        "REFERENCE OUTPUT SHAPE:\n"
+        "- Output ONLY keys industry_exposure and solutions_delivered.\n"
+        "- Each array must contain exactly 5 strings.\n"
+        "- Learner/brochure tone: sectors and solution capabilities — never org/client names from CRM.\n"
+        "- Never use ALL CAPS for list items; Title Case or sentence case.\n"
+        "- Max 72 characters per string.\n"
+        "- Do NOT change training_delivered, profile narrative, programs, or experience sections.\n"
+        "- Ground changes in the refine instruction and existing list context; do not invent credentials.\n\n"
+        "OUTPUT JSON SCHEMA:\n"
         f"{schema_hint}\n"
     )
 
