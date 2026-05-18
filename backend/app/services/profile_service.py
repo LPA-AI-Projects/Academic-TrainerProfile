@@ -518,13 +518,10 @@ def _company_name_from_payload(payload: GenerateProfileRequest) -> str | None:
     return (payload.company_name or "").strip() or None
 
 
-def _outline_snapshot(outline_blocks: list[str], max_chars: int) -> str | None:
+def _outline_snapshot(outline_blocks: list[str]) -> str | None:
+    """Full combined outline text for DB storage (no character cap)."""
     joined = "\n\n".join(s.strip() for s in outline_blocks if s and str(s).strip())
-    if not joined:
-        return None
-    if len(joined) > max_chars:
-        return joined[:max_chars]
-    return joined
+    return joined or None
 
 
 def _job_trainer_lookup_key(job: TrainerProfileJob) -> str:
@@ -1190,9 +1187,7 @@ async def generate_from_parent_with_trainers(
                 job = TrainerProfileJob(
                     zoho_record_id=payload.zoho_record_id,
                     company_name=_company_name_from_payload(payload),
-                    outline_text=_outline_snapshot(
-                        outline_trimmed, settings.max_outline_chars
-                    ),
+                    outline_text=_outline_snapshot(outline_trimmed),
                     cv_path=cv_stored,
                     course_outline_paths=outline_refs,
                     provider=payload.provider or settings.default_provider,
@@ -1403,7 +1398,7 @@ async def generate_and_store_profile(
     job = TrainerProfileJob(
         zoho_record_id=payload.zoho_record_id,
         company_name=_company_name_from_payload(payload),
-        outline_text=_outline_snapshot(outline_trimmed, settings.max_outline_chars),
+        outline_text=_outline_snapshot(outline_trimmed),
         cv_path=cv_path_stored,
         course_outline_paths=stored_outline_refs,
         provider=payload.provider or settings.default_provider,
