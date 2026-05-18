@@ -468,6 +468,7 @@ async def generate_profile(request: Request, db: Session = Depends(get_db)):
         payload = GenerateProfileRequest(
             zoho_record_id=zid,
             course_name=(form_data.get("course_name") or "").strip() or None,
+            company_name=(form_data.get("company_name") or "").strip() or None,
             cv=(form_data.get("cv") or "").strip() or None,
             course_outline_paths=outline_list,
             programs_trained=programs_list,
@@ -743,6 +744,7 @@ async def generate_profile_form(
     db: Session = Depends(get_db),
     zoho_record_id: str = Form(...),
     course_name: str | None = Form(None, description="Optional: Drive folder segment + filename (see GOOGLE_DRIVE_AUTO_UPLOAD)."),
+    company_name: str | None = Form(None, description="Optional: stored on job row for audit."),
     cv: str | None = Form(
         None,
         description="Zoho CRM file id for CV (optional if CRM field env loads CV from the record; uploads are not supported).",
@@ -812,6 +814,7 @@ async def generate_profile_form(
         payload = GenerateProfileRequest(
             zoho_record_id=zid,
             course_name=course_name.strip() if course_name and course_name.strip() else None,
+            company_name=company_name.strip() if company_name and company_name.strip() else None,
             cv=cv_id_effective,
             course_outline_paths=outline_list,
             programs_trained=programs_list,

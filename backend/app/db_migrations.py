@@ -41,6 +41,10 @@ def apply_light_migrations(engine: Engine) -> None:
             statements.append("ALTER TABLE trainer_profile_jobs ADD COLUMN feedback_updated_at DATETIME")
         else:
             statements.append("ALTER TABLE trainer_profile_jobs ADD COLUMN feedback_updated_at TIMESTAMP")
+    if "company_name" not in columns:
+        statements.append("ALTER TABLE trainer_profile_jobs ADD COLUMN company_name VARCHAR(200)")
+    if "outline_text" not in columns:
+        statements.append("ALTER TABLE trainer_profile_jobs ADD COLUMN outline_text TEXT")
 
     if not statements:
         return

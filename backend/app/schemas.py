@@ -10,6 +10,8 @@ class GenerateProfileRequest(BaseModel):
     zoho_record_id: str = Field(min_length=1, max_length=128)
     # Optional: Google Drive folder segment + upload filename (see GOOGLE_DRIVE_* env). Webhook can pass this field.
     course_name: str | None = Field(default=None, max_length=200)
+    # Optional: stored on the job row for audit; does not affect generation flow.
+    company_name: str | None = Field(default=None, max_length=200)
     # Zoho CRM file id for the trainer CV (downloaded server-side). Omit when ``ZOHO_*`` env loads ``Trainer_CV`` from the record (legacy) or when using the parent multi-trainer flow (CV on each trainer row).
     cv: str | None = Field(default=None, max_length=256)
     course_outline_paths: list[str] = Field(
@@ -36,6 +38,16 @@ class GenerateProfileRequest(BaseModel):
     @field_validator("course_name", mode="before")
     @classmethod
     def empty_course_name(cls, value: object) -> str | None:
+        if value is None:
+            return None
+        if isinstance(value, str):
+            s = value.strip()
+            return s or None
+        return str(value).strip() or None
+
+    @field_validator("company_name", mode="before")
+    @classmethod
+    def empty_company_name(cls, value: object) -> str | None:
         if value is None:
             return None
         if isinstance(value, str):

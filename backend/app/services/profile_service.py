@@ -5,6 +5,7 @@ import time
 from datetime import datetime
 from pathlib import Path
 
+from sqlalchemy import func
 from sqlalchemy.orm import Session
 
 from ..config import get_settings
@@ -511,6 +512,101 @@ def _parse_multiline_zoho_text(raw: str | None) -> list[str]:
         return []
     text = str(raw).replace("\r\n", "\n").replace("\r", "\n")
     return [line.strip() for line in text.split("\n") if line.strip()]
+
+
+def _company_name_from_payload(payload: GenerateProfileRequest) -> str | None:
+    return (payload.company_name or "").strip() or None
+
+
+def _outline_snapshot(outline_blocks: list[str], max_chars: int) -> str | None:
+    joined = "\n\n".join(s.strip() for s in outline_blocks if s and str(s).strip())
+    if not joined:
+        return None
+    if len(joined) > max_chars:
+        return joined[:max_chars]
+    return joined
+
+
+def _job_trainer_lookup_key(job: TrainerProfileJob) -> str:
+    """Stable trainer id for matching prior jobs (Trainer_Unique_Code base or display name)."""
+    parsed = job.parsed_inputs if isinstance(job.parsed_inputs, dict) else {}
+    code = str(parsed.get("trainer_unique_code") or "").strip()
+    if code:
+        return trainer_unique_lookup_base(code)
+    gp = job.generated_profile if isinstance(job.generated_profile, dict) else {}
+    disp = str(gp.get("trainer_display_name") or "").strip()
+    if disp:
+        return trainer_unique_lookup_base(disp)
+    return ""
+
+
+def _outline_block_fingerprint(text: str) -> str:
+    return re.sub(r"\s+", " ", (text or "").strip()).casefold()
+
+
+def _fetch_prior_outline_snapshots(
+    db: Session,
+    *,
+    company_name: str,
+    trainer_key: str,
+    zoho_record_id: str | None = None,
+) -> list[str]:
+    """All distinct prior ``outline_text`` rows for the same company + trainer (newest first)."""
+    cn = (company_name or "").strip()
+    tk = (trainer_key or "").strip()
+    if not cn:
+        return []
+    cn_fold = cn.casefold()
+    z = (zoho_record_id or "").strip()
+
+    rows = (
+        db.query(TrainerProfileJob)
+        .filter(TrainerProfileJob.status == "completed")
+        .filter(TrainerProfileJob.company_name.isnot(None))
+        .filter(TrainerProfileJob.outline_text.isnot(None))
+        .filter(func.lower(TrainerProfileJob.company_name) == cn_fold)
+        .order_by(TrainerProfileJob.created_at.desc())
+        .all()
+    )
+
+    out: list[str] = []
+    seen: set[str] = set()
+    for job in rows:
+        if tk:
+            if _job_trainer_lookup_key(job) != tk:
+                continue
+        elif z and (job.zoho_record_id or "").strip() != z:
+            continue
+        elif not tk and not z:
+            continue
+        text = (job.outline_text or "").strip()
+        if not text:
+            continue
+        fp = _outline_block_fingerprint(text)
+        if fp in seen:
+            continue
+        seen.add(fp)
+        out.append(text)
+    return out
+
+
+def _merge_outlines_for_generation(
+    parent_outline_blocks: list[str],
+    historical_blocks: list[str],
+) -> list[str]:
+    """Parent CRM outline(s) first, then all distinct historical DB snapshots (deduped)."""
+    merged: list[str] = []
+    seen: set[str] = set()
+    for block in list(parent_outline_blocks) + list(historical_blocks):
+        b = str(block or "").strip()
+        if not b:
+            continue
+        fp = _outline_block_fingerprint(b)
+        if fp in seen:
+            continue
+        seen.add(fp)
+        merged.append(b)
+    return merged
 
 
 def _payload_program_hints(payload: GenerateProfileRequest) -> list[str] | None:
@@ -1051,18 +1147,32 @@ async def generate_from_parent_with_trainers(
 
             unique_code = get_scalar_field_str(trainer_row, code_f) or "Trainer"
             heading_label = unique_code.strip()[:40]
+            company = _company_name_from_payload(payload)
+            trainer_key = trainer_unique_lookup_base(heading_label)
+            historical_outlines: list[str] = []
+            if company and trainer_key:
+                historical_outlines = _fetch_prior_outline_snapshots(
+                    db,
+                    company_name=company,
+                    trainer_key=trainer_key,
+                )
+            combined_outlines = _merge_outlines_for_generation(outline_blob, historical_outlines)
 
             temp_cv: Path | None = None
             try:
                 temp_cv = download_crm_file_to_path(cv_file_id, _temp_cv_dir())
                 cv_text = read_text_from_path(str(temp_cv))
-                cv_trimmed, outline_trimmed = truncate_inputs(cv_text, outline_blob)
+                cv_trimmed, outline_trimmed = truncate_inputs(cv_text, combined_outlines)
                 logger.info(
-                    "GEN_PARENT_INPUT_SIZES trainer_id=%s cv_chars_after_truncate=%s outline_blocks=%s outline_chars_total=%s",
+                    "GEN_PARENT_INPUT_SIZES trainer_id=%s cv_chars_after_truncate=%s outline_blocks=%s "
+                    "outline_chars_total=%s historical_outline_blocks=%s company_name=%s trainer_key=%s",
                     trainer_id,
                     len(cv_trimmed),
                     len(outline_trimmed),
                     sum(len(x) for x in outline_trimmed),
+                    len(historical_outlines),
+                    company or "(none)",
+                    trainer_key or "(none)",
                 )
                 req_prog_hints = _payload_program_hints(payload)
 
@@ -1079,6 +1189,10 @@ async def generate_from_parent_with_trainers(
 
                 job = TrainerProfileJob(
                     zoho_record_id=payload.zoho_record_id,
+                    company_name=_company_name_from_payload(payload),
+                    outline_text=_outline_snapshot(
+                        outline_trimmed, settings.max_outline_chars
+                    ),
                     cv_path=cv_stored,
                     course_outline_paths=outline_refs,
                     provider=payload.provider or settings.default_provider,
@@ -1088,6 +1202,8 @@ async def generate_from_parent_with_trainers(
                     parsed_inputs={
                         "cv_excerpt": cv_trimmed[:4000],
                         "outline_count": len(outline_trimmed),
+                        "parent_outline_blocks": len(outline_blob),
+                        "historical_outline_blocks": len(historical_outlines),
                         "parent_record_id": parent_id,
                         "parent_module": parent_mod,
                         "trainer_record_id": trainer_id,
@@ -1241,14 +1357,27 @@ async def generate_and_store_profile(
 
         t_read = time.perf_counter()
         cv_text = read_text_from_path(local_cv)
-        outlines = [read_text_from_path(path) for path in outline_read_paths]
-        cv_trimmed, outline_trimmed = truncate_inputs(cv_text, outlines)
+        current_outlines = [read_text_from_path(path) for path in outline_read_paths]
+        company = _company_name_from_payload(payload)
+        historical_outlines: list[str] = []
+        if company:
+            historical_outlines = _fetch_prior_outline_snapshots(
+                db,
+                company_name=company,
+                trainer_key="",
+                zoho_record_id=(payload.zoho_record_id or "").strip(),
+            )
+        combined_outlines = _merge_outlines_for_generation(current_outlines, historical_outlines)
+        cv_trimmed, outline_trimmed = truncate_inputs(cv_text, combined_outlines)
         logger.info(
-            "GEN_CV_PARSED path_used=%s cv_chars=%s outline_files=%s outline_chars=%s read_ms=%.1f",
+            "GEN_CV_PARSED path_used=%s cv_chars=%s outline_files=%s outline_blocks=%s outline_chars=%s "
+            "historical_outline_blocks=%s read_ms=%.1f",
             local_cv,
             len(cv_trimmed),
             len(outline_read_paths),
+            len(outline_trimmed),
             sum(len(x) for x in outline_trimmed),
+            len(historical_outlines),
             (time.perf_counter() - t_read) * 1000,
         )
     finally:
@@ -1273,6 +1402,8 @@ async def generate_and_store_profile(
 
     job = TrainerProfileJob(
         zoho_record_id=payload.zoho_record_id,
+        company_name=_company_name_from_payload(payload),
+        outline_text=_outline_snapshot(outline_trimmed, settings.max_outline_chars),
         cv_path=cv_path_stored,
         course_outline_paths=stored_outline_refs,
         provider=payload.provider or settings.default_provider,
@@ -1282,6 +1413,8 @@ async def generate_and_store_profile(
         parsed_inputs={
             "cv_excerpt": cv_trimmed[:4000],
             "outline_count": len(outline_trimmed),
+            "current_outline_blocks": len(current_outlines),
+            "historical_outline_blocks": len(historical_outlines),
             "drive_course_name": drive_cn,
             "programs_trained_hints": req_prog_hints or [],
         },

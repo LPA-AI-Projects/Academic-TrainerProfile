@@ -12,6 +12,8 @@ class TrainerProfileJob(Base):
 
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid4()))
     zoho_record_id: Mapped[str] = mapped_column(String(128), index=True)
+    company_name: Mapped[str | None] = mapped_column(String(200), nullable=True)
+    outline_text: Mapped[str | None] = mapped_column(Text(), nullable=True)
     cv_path: Mapped[str] = mapped_column(Text())
     course_outline_paths: Mapped[list[str]] = mapped_column(JSON, default=list)
     provider: Mapped[str] = mapped_column(String(32), default="anthropic")
