@@ -24,24 +24,6 @@ const DEFAULTS = {
     'Executive Communication, Leadership & Presentation Skills',
     'Emotional Intelligence & Empathy-Driven Leadership',
   ],
-  training: [
-    'Amazon – Egypt',
-    'Bukhatir',
-    'ZAJEL',
-    'Astro Offshore',
-    'Proof point UAE',
-    'Al Fahad Electrical Systems',
-    'Dubai Chambers',
-    'Servier Pharma',
-    'Healthcare Pharmaceuticals',
-    'Global Esoft',
-    'United Education',
-    'Hapag Lloyd - United Arab Shipping Company Limited',
-    'AC Business Experts',
-    'KIA Middle East and Africa FZE',
-    'Creative Vision General Trading LLC',
-    'EMKA Beschlagteile Middle East FZE',
-  ],
   strengths: [
     'Emotional Intelligence',
     'Communication Skills',
@@ -344,16 +326,6 @@ function applyGeneratedProfile(profile) {
     if (p1El) p1El.innerHTML = p1.map(item => `<li>${escapeHtml(item)}</li>`).join('');
     if (p2El) p2El.innerHTML = p2.map(item => `<li>${escapeHtml(item)}</li>`).join('');
   }
-  if (listManagers.training) {
-    const trainingItems = Array.isArray(safeProfile.training_delivered) && safeProfile.training_delivered.length
-      ? safeProfile.training_delivered
-      : [
-          ...(safeProfile.education || []),
-          ...(safeProfile.certificates || []),
-          ...(safeProfile.board_experience || []),
-        ];
-    listManagers.training.setItems(normalizeList(trainingItems, 14));
-  }
   if (listManagers.strengths) {
     const strengths = Array.isArray(safeProfile.key_skills) && safeProfile.key_skills.length
       ? safeProfile.key_skills
@@ -530,12 +502,6 @@ document.addEventListener('DOMContentLoaded', () => {
     defaults:         DEFAULTS.programs,
   });
 
-  listManagers.training = createListManager({
-    formContainerId: 'list-training',
-    cvSelectors:     ['#cv-p2-training-ul'],
-    defaults:         DEFAULTS.training,
-  });
-
   listManagers.strengths = createListManager({
     formContainerId: 'list-strengths',
     cvSelectors:     ['#cv-p2-strengths-ul'],
@@ -571,7 +537,6 @@ document.addEventListener('DOMContentLoaded', () => {
   } else {
     // Clear the sample dynamic lists; job loader will repopulate.
     listManagers.programs?.setItems([]);
-    listManagers.training?.setItems([]);
     listManagers.strengths?.setItems([]);
     listManagers.experience?.setItems([]);
     listManagers.awards?.setItems([]);

@@ -149,7 +149,6 @@
 
     .p1-programs-clip { max-height: 308px; overflow: hidden; }
     .p2-programs-clip { max-height: 250px; overflow: hidden; }
-    .p2-training-clip { max-height: 400px; overflow: hidden; }
     .p2-strengths-clip { max-height: 428px; overflow: hidden; }
     .p3-experience-clip { max-height: 308px; overflow: hidden; }
     .p3-awards-clip { max-height: 252px; overflow: hidden; }
@@ -254,14 +253,6 @@
     </div>
 
     <div class="light" style="left:355px;top:327px;width:255px;height:515px;"></div>
-
-    <div id="cv-p2-training-box" class="p2-training-clip" style="position:absolute;left:41px;top:384px;width:232px;">
-      <h2 class="title">TRAINING DELIVERED</h2>
-      <ul id="cv-p2-training-ul" class="text12"
-          style="display:grid;gap:4px;margin-top:10px;">
-        <!-- filled dynamically -->
-      </ul>
-    </div>
 
     <div id="cv-p2-strengths-box" class="p2-strengths-clip" style="position:absolute;left:389px;top:357px;width:177px;">
       <h2 class="title">STRENGTHS</h2>
@@ -377,7 +368,6 @@
       const runOverflowCleaner = () => {
         removeLastUntilFit('cv-p1-programs-ul', 'cv-p1-programs-box');
         removeLastUntilFit('cv-p2-programs-ul', 'cv-p2-programs-box');
-        removeLastUntilFit('cv-p2-training-ul', 'cv-p2-training-box');
         removeLastUntilFit('cv-p2-strengths-ul', 'cv-p2-strengths-box');
         removeLastUntilFit('cv-p3-experience-ul', 'cv-p3-experience-box');
         removeLastUntilFit('cv-p3-awards-ul', 'cv-p3-awards-box');
@@ -400,11 +390,6 @@
 
         const programs = topItems(p.programs_trained, 24).map((x) => clampLine(x, 72));
         distributeProgramsAcrossPages(programs);
-
-        setList(
-          'cv-p2-training-ul',
-          topItems(p.training_delivered, 14).map((x) => clampLine(x, 58)),
-        );
 
         const skills = p.key_skills?.length ? p.key_skills : p.core_competencies;
         setList(

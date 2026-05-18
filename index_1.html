@@ -248,14 +248,6 @@
 
     <div class="light" style="left:355px;top:327px;width:255px;height:515px;"></div>
 
-    <div id="cv-p2-training-box" style="position:absolute;left:41px;top:384px;width:232px;">
-      <h2 class="title">TRAINING DELIVERED</h2>
-      <ul id="cv-p2-training-ul" class="text12"
-          style="display:grid;gap:4px;margin-top:10px;">
-        <!-- filled dynamically -->
-      </ul>
-    </div>
-
     <div id="cv-p2-strengths-box" style="position:absolute;left:389px;top:357px;width:177px;">
       <h2 class="title">STRENGTHS</h2>
       <ul id="cv-p2-strengths-ul" class="text12"
@@ -363,7 +355,6 @@
       const runOverflowCleaner = () => {
         removeLastUntilFit('cv-p1-programs-ul', 'cv-p1-programs-box');
         removeLastUntilFit('cv-p2-programs-ul', 'cv-p2-programs-box');
-        removeLastUntilFit('cv-p2-training-ul', 'cv-p2-training-box');
         removeLastUntilFit('cv-p2-strengths-ul', 'cv-p2-strengths-box');
         removeLastUntilFit('cv-p3-experience-ul', 'page3');
         removeLastUntilFit('cv-p3-awards-ul', 'page3');
@@ -386,8 +377,6 @@
 
         const programs = topItems(p.programs_trained, 26);
         distributeProgramsAcrossPages(programs);
-
-        setList('cv-p2-training-ul', topItems(p.training_delivered, 16));
 
         const skills = p.key_skills?.length ? p.key_skills : p.core_competencies;
         setList('cv-p2-strengths-ul', topItems(skills, 11));

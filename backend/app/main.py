@@ -1,6 +1,7 @@
 import json
 import logging
 import tempfile
+import uuid
 from datetime import datetime
 from pathlib import Path
 from typing import Literal
@@ -11,16 +12,23 @@ from starlette.requests import ClientDisconnect
 
 from fastapi import Depends, FastAPI, File, Form, Header, HTTPException, Request, UploadFile
 from fastapi import Path as PathParam
+from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import ValidationError
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from sqlalchemy import text
 from sqlalchemy.orm import Session
 
 from .config import get_settings
 from .database import Base, engine, get_db
-from .utils.http_errors import PostOnlyAccessLogFilter, validation_errors_for_response
+from .utils.http_errors import (
+    PostOnlyAccessLogFilter,
+    errors_list_for_response,
+    exception_public_detail,
+    log_operation_error,
+    validation_errors_for_response,
+)
 from .utils.logger import get_logger
 from .db_migrations import apply_light_migrations
 from .models import TrainerProfileJob
@@ -53,6 +61,105 @@ settings = get_settings()
 app = FastAPI(title=settings.app_name)
 
 logger = get_logger(__name__)
+
+
+def _request_id(request: Request) -> str:
+    return str(getattr(request.state, "request_id", "") or "")
+
+
+@app.middleware("http")
+async def request_context_middleware(request: Request, call_next):
+    """Attach X-Request-ID for log correlation (client may send X-Request-ID)."""
+    request_id = (request.headers.get("x-request-id") or "").strip() or uuid.uuid4().hex[:12]
+    request.state.request_id = request_id
+    try:
+        response = await call_next(request)
+    except Exception as exc:
+        log_operation_error(
+            logger,
+            "API_REQUEST_UNHANDLED",
+            exc,
+            request_id=request_id,
+            path=request.url.path,
+            method=request.method,
+        )
+        raise
+    response.headers["X-Request-ID"] = request_id
+    if response.status_code >= 400:
+        logger.warning(
+            "API_RESPONSE_%s path=%s method=%s request_id=%s",
+            response.status_code,
+            request.url.path,
+            request.method,
+            request_id,
+        )
+    return response
+
+
+@app.exception_handler(HTTPException)
+async def logged_http_exception_handler(request: Request, exc: HTTPException) -> JSONResponse:
+    rid = _request_id(request)
+    detail = exc.detail
+    if exc.status_code >= 500:
+        logger.error(
+            "API_HTTP_%s path=%s request_id=%s detail=%s",
+            exc.status_code,
+            request.url.path,
+            rid,
+            detail,
+        )
+    else:
+        logger.warning(
+            "API_HTTP_%s path=%s request_id=%s detail=%s",
+            exc.status_code,
+            request.url.path,
+            rid,
+            detail,
+        )
+    body: dict[str, object] = {"detail": detail}
+    if rid:
+        body["request_id"] = rid
+    return JSONResponse(status_code=exc.status_code, content=body, headers=exc.headers)
+
+
+@app.exception_handler(RequestValidationError)
+async def logged_request_validation_handler(
+    request: Request, exc: RequestValidationError
+) -> JSONResponse:
+    rid = _request_id(request)
+    errors = errors_list_for_response(list(exc.errors()))
+    logger.warning(
+        "API_VALIDATION_FAILED path=%s request_id=%s error_count=%s errors=%s",
+        request.url.path,
+        rid,
+        len(errors),
+        errors,
+    )
+    return JSONResponse(
+        status_code=422,
+        content={"detail": errors, "request_id": rid} if rid else {"detail": errors},
+    )
+
+
+@app.exception_handler(Exception)
+async def logged_unhandled_exception_handler(request: Request, exc: Exception) -> JSONResponse:
+    rid = _request_id(request)
+    log_operation_error(
+        logger,
+        "API_UNHANDLED_EXCEPTION",
+        exc,
+        request_id=rid,
+        path=request.url.path,
+        method=request.method,
+    )
+    return JSONResponse(
+        status_code=500,
+        content={
+            "detail": exception_public_detail(exc, app_env=settings.app_env),
+            "request_id": rid,
+        },
+    )
+
 
 # Set True in startup after create_all + migrations; Railway /health stays up if DB is misconfigured.
 _db_initialized: bool = False
@@ -244,7 +351,14 @@ def _build_generate_profile_response(
         )
     failed = [j for j in jobs if j.status == "failed"]
     if failed:
-        raise HTTPException(status_code=400, detail=failed[0].error_message or "Generation failed")
+        fj = failed[0]
+        logger.error(
+            "API_GENERATE_JOB_FAILED job_id=%s zoho_record_id=%s error_message=%s",
+            fj.id,
+            fj.zoho_record_id,
+            fj.error_message,
+        )
+        raise HTTPException(status_code=400, detail=fj.error_message or "Generation failed")
     first = jobs[0]
     export = _export_links_for_job(request, first.id)
     items: list[GenerateProfileJobItem] | None = None
@@ -383,7 +497,11 @@ def health_db() -> dict[str, str]:
             conn.execute(text("SELECT 1"))
         return {"status": "ok", "database": "connected"}
     except Exception as exc:
-        raise HTTPException(status_code=503, detail=f"Database connection failed: {exc}")
+        log_operation_error(logger, "API_HEALTH_DB_FAILED", exc)
+        raise HTTPException(
+            status_code=503,
+            detail=exception_public_detail(exc, app_env=settings.app_env),
+        ) from exc
 
 
 @app.post(
@@ -489,15 +607,32 @@ async def generate_profile(request: Request, db: Session = Depends(get_db)):
         sorted(form_data.keys()),
     )
 
-    jobs = await generate_and_store_profile(
-        payload,
-        db,
-        public_base_url=_public_base_url(request),
-    )
+    try:
+        jobs = await generate_and_store_profile(
+            payload,
+            db,
+            public_base_url=_public_base_url(request),
+        )
+    except HTTPException:
+        raise
+    except Exception as exc:
+        log_operation_error(
+            logger,
+            "API_GENERATE_FAILED",
+            exc,
+            request_id=_request_id(request),
+            zoho_record_id=zid,
+            path=request.url.path,
+        )
+        raise HTTPException(
+            status_code=500,
+            detail=exception_public_detail(exc, app_env=settings.app_env),
+        ) from exc
     logger.info(
-        "API_GENERATE_RESPONSE zoho_record_id=%s job_count=%s",
+        "API_GENERATE_RESPONSE zoho_record_id=%s job_count=%s request_id=%s",
         zid,
         len(jobs),
+        _request_id(request),
     )
     return _build_generate_profile_response(request, jobs, zoho_record_id=zid)
 
@@ -531,7 +666,7 @@ async def _refine_profile_impl(
     payload: RefineProfileRequest, request: Request, db: Session
 ) -> GenerateProfileResponse:
     """
-    Refine INDUSTRY EXPOSURE and SOLUTIONS DELIVERED on the stored profile, then re-run PDF/Drive/Zoho.
+    Refine the stored brochure profile (partial JSON merge per instruction), then re-run PDF/Drive/Zoho.
 
     Requires ``zoho_record_id`` and a refine instruction (min 10 characters).
     ``unique_code`` / ``title`` are required only when multiple completed jobs share the same parent id.
@@ -580,22 +715,34 @@ async def _refine_profile_impl(
             model_name=job.model_name or settings.default_model,
         )
     except Exception as exc:
-        logger.exception(
-            "API_REFINE_FAILED job_id=%s zoho_record_id=%s unique_code=%s",
-            job.id,
-            job.zoho_record_id,
-            payload.unique_code,
+        log_operation_error(
+            logger,
+            "API_REFINE_LLM_FAILED",
+            exc,
+            job_id=job.id,
+            zoho_record_id=job.zoho_record_id,
+            unique_code=payload.unique_code,
+            request_id=_request_id(request),
         )
-        raise HTTPException(status_code=400, detail=str(exc)) from exc
+        raise HTTPException(
+            status_code=400,
+            detail=exception_public_detail(exc, app_env=settings.app_env),
+        ) from exc
 
     try:
         gen = normalize_profile_payload(
             merged_full,
             programs_trained_hints=None,
-            training_delivered_hints=None,
         )
     except Exception as exc:
-        logger.warning("API_REFINE_NORMALIZE_FALLBACK job_id=%s err=%s", job.id, exc)
+        log_operation_error(
+            logger,
+            "API_REFINE_NORMALIZE_FAILED",
+            exc,
+            level=logging.WARNING,
+            job_id=job.id,
+            request_id=_request_id(request),
+        )
         gen = merged_full
 
     disp = merged_full.get("trainer_display_name") or gp.get("trainer_display_name")
@@ -629,11 +776,18 @@ async def _refine_profile_impl(
         await maybe_google_drive_upload_after_pdf(job, db)
         await maybe_zoho_attach_trainer_pdf_link(job, db, public_base_url=pub)
     except Exception as exc:
-        job.pdf_generation_error = str(exc)
+        job.pdf_generation_error = f"{type(exc).__name__}: {exc}"
         db.add(job)
         db.commit()
         db.refresh(job)
-        logger.exception("API_V2_REFINE_PDF_FAILED job_id=%s", job.id)
+        log_operation_error(
+            logger,
+            "API_REFINE_PDF_FAILED",
+            exc,
+            job_id=job.id,
+            zoho_record_id=job.zoho_record_id,
+            request_id=_request_id(request),
+        )
 
     db.refresh(job)
     export = _export_links_for_job(request, job.id)
@@ -652,7 +806,7 @@ async def _refine_profile_impl(
     "/api/v1/profiles/refine",
     response_model=GenerateProfileResponse,
     dependencies=[optional_api_key],
-    summary="Refine industry_exposure and solutions_delivered (zoho_record_id; optional unique_code)",
+    summary="Refine brochure profile fields (zoho_record_id; optional unique_code)",
 )
 async def refine_profile(request: Request, db: Session = Depends(get_db)):
     payload = await _parse_refine_payload_from_request(request)
@@ -829,10 +983,20 @@ async def generate_profile_form(
         for p in temp_uploads:
             p.unlink(missing_ok=True)
         raise
-    except Exception:
+    except Exception as exc:
         for p in temp_uploads:
             p.unlink(missing_ok=True)
-        raise
+        log_operation_error(
+            logger,
+            "API_GENERATE_FORM_BUILD_FAILED",
+            exc,
+            request_id=_request_id(request),
+            zoho_record_id=zid,
+        )
+        raise HTTPException(
+            status_code=500,
+            detail=exception_public_detail(exc, app_env=settings.app_env),
+        ) from exc
 
     logger.info(
         "API_GENERATE_FORM zoho_record_id=%s cv_id=%s outline_paths_count=%s outline_file=%s",
@@ -843,19 +1007,35 @@ async def generate_profile_form(
     )
 
     try:
-        jobs = await generate_and_store_profile(
-            payload,
-            db,
-            public_base_url=_public_base_url(request),
-        )
+        try:
+            jobs = await generate_and_store_profile(
+                payload,
+                db,
+                public_base_url=_public_base_url(request),
+            )
+        except HTTPException:
+            raise
+        except Exception as exc:
+            log_operation_error(
+                logger,
+                "API_GENERATE_FORM_FAILED",
+                exc,
+                request_id=_request_id(request),
+                zoho_record_id=zid,
+            )
+            raise HTTPException(
+                status_code=500,
+                detail=exception_public_detail(exc, app_env=settings.app_env),
+            ) from exc
     finally:
         for p in temp_uploads:
             p.unlink(missing_ok=True)
 
     logger.info(
-        "API_GENERATE_FORM_RESPONSE zoho_record_id=%s job_count=%s",
+        "API_GENERATE_FORM_RESPONSE zoho_record_id=%s job_count=%s request_id=%s",
         zoho_record_id,
         len(jobs),
+        _request_id(request),
     )
     return _build_generate_profile_response(request, jobs, zoho_record_id=zoho_record_id)
 

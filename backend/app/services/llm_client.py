@@ -5,8 +5,9 @@ from anthropic import Anthropic
 from openai import OpenAI
 
 from ..config import Settings, get_settings
+from ..utils.http_errors import log_operation_error
 from ..utils.logger import get_logger
-from .prompt_builder import PROFILE_OUTPUT_SCHEMA
+from .prompt_builder import PROFILE_OUTPUT_SCHEMA, PROFESSIONAL_TITLES_TAGLINE_RULES
 
 logger = get_logger(__name__)
 
@@ -23,11 +24,6 @@ def _mock_response() -> dict[str, Any]:
             "Leadership and Team Effectiveness",
             "Business Communication",
             "Client Service Excellence",
-        ],
-        "training_delivered": [
-            "Government entities",
-            "Banking teams",
-            "Corporate L&D cohorts",
         ],
         "education": [],
         "professional_experience": [],
@@ -96,8 +92,21 @@ def _extract_json_object(text: str) -> dict[str, Any]:
     start = text.find("{")
     end = text.rfind("}")
     if start == -1 or end == -1 or end <= start:
-        raise ValueError("Model output does not contain valid JSON object.")
-    return json.loads(text[start : end + 1])
+        preview = (text or "").strip().replace("\n", " ")[:240]
+        logger.error("LLM_JSON_NO_OBJECT output_preview=%r output_chars=%s", preview, len(text or ""))
+        raise ValueError("Model output does not contain a JSON object.")
+    fragment = text[start : end + 1]
+    try:
+        return json.loads(fragment)
+    except json.JSONDecodeError as exc:
+        preview = fragment.replace("\n", " ")[:240]
+        logger.error(
+            "LLM_JSON_PARSE_FAILED exc_type=%s exc_msg=%s output_preview=%r",
+            type(exc).__name__,
+            exc,
+            preview,
+        )
+        raise ValueError(f"Model output is not valid JSON: {exc}") from exc
 
 
 def _generate_openai(prompt: str, settings: Settings, model_name: str) -> tuple[dict[str, Any], str]:
@@ -162,34 +171,53 @@ def generate_profile_json(
     else:
         resolved_model = settings.openai_model
 
-    if resolved_provider == "openai":
-        payload, raw = _generate_openai(prompt, settings, resolved_model)
-    elif resolved_provider == "anthropic":
-        payload, raw = _generate_anthropic(prompt, settings, resolved_model)
-    else:
-        raise ValueError("Unsupported provider. Use 'openai' or 'anthropic'.")
+    logger.info(
+        "LLM_GENERATE_START provider=%s model=%s prompt_chars=%s",
+        resolved_provider,
+        resolved_model,
+        len(prompt or ""),
+    )
+    try:
+        if resolved_provider == "openai":
+            payload, raw = _generate_openai(prompt, settings, resolved_model)
+        elif resolved_provider == "anthropic":
+            payload, raw = _generate_anthropic(prompt, settings, resolved_model)
+        else:
+            raise ValueError("Unsupported provider. Use 'openai' or 'anthropic'.")
+    except Exception as exc:
+        log_operation_error(
+            logger,
+            "LLM_GENERATE_FAILED",
+            exc,
+            provider=resolved_provider,
+            model=resolved_model,
+        )
+        raise
 
+    logger.info(
+        "LLM_GENERATE_OK provider=%s model=%s raw_chars=%s keys=%s",
+        resolved_provider,
+        resolved_model,
+        len(raw or ""),
+        sorted(payload.keys()) if isinstance(payload, dict) else [],
+    )
     return payload, resolved_provider, raw
 
 
-# Refine API only updates brochure page-2 left column lists (not training_delivered or narrative).
-REFINE_MERGE_KEYS = ("industry_exposure", "solutions_delivered")
-
-REFINE_OUTPUT_SCHEMA = {
-    "industry_exposure": [
-        "string (exactly 5 items; Title Case or sentence case; never ALL CAPS; max 72 chars each)"
-    ],
-    "solutions_delivered": [
-        "string (exactly 5 items; Title Case or sentence case; never ALL CAPS; max 72 chars each)"
-    ],
-}
+# Keys the refine endpoint may update (partial JSON response merged onto stored profile).
+REFINABLE_PROFILE_KEYS = frozenset(PROFILE_OUTPUT_SCHEMA.keys()) | frozenset(
+    {"trainer_display_name"}
+)
 
 
 def _merge_refined_profile_dict(existing: dict[str, Any], refined: dict[str, Any]) -> dict[str, Any]:
     out = dict(existing)
-    for k in REFINE_MERGE_KEYS:
-        if k in refined and refined[k] is not None:
-            out[k] = refined[k]
+    for k, v in refined.items():
+        if k not in REFINABLE_PROFILE_KEYS:
+            continue
+        if v is None:
+            continue
+        out[k] = v
     return out
 
 
@@ -202,7 +230,7 @@ def refine_generated_profile_json(
     model_name: str | None = None,
 ) -> tuple[dict[str, Any], str, str]:
     """
-    Apply refinement to ``industry_exposure`` and ``solutions_delivered`` only.
+    Apply refinement instructions to the stored brochure profile JSON (partial update merged in).
 
     Returns ``(merged_profile, resolved_provider, raw_model_output)``.
     """
@@ -215,31 +243,35 @@ def refine_generated_profile_json(
     else:
         resolved_model = settings.openai_model
 
-    schema_hint = json.dumps(REFINE_OUTPUT_SCHEMA, indent=2, ensure_ascii=False)
-    context = {
-        "industry_exposure": existing_profile.get("industry_exposure") or [],
-        "solutions_delivered": existing_profile.get("solutions_delivered") or [],
-        "professional_titles": existing_profile.get("professional_titles") or [],
-        "programs_trained": (existing_profile.get("programs_trained") or [])[:8],
-    }
-    current_json = json.dumps(context, indent=2, ensure_ascii=False)
+    schema_hint = json.dumps(PROFILE_OUTPUT_SCHEMA, indent=2, ensure_ascii=False)
+    tagline_rules = "\n".join(f"- {rule}" for rule in PROFESSIONAL_TITLES_TAGLINE_RULES)
+    current_json = json.dumps(existing_profile, indent=2, ensure_ascii=False)
     prompt = (
-        "You are editing INDUSTRY EXPOSURE and SOLUTIONS DELIVERED lists on a trainer brochure.\n\n"
-        "CURRENT LISTS (context only — do not return other profile fields):\n"
+        "You are editing an EXISTING trainer brochure profile JSON.\n\n"
+        "CURRENT PROFILE JSON:\n"
         f"{current_json}\n\n"
         "REFINE INSTRUCTION:\n"
         f"{refine_instruction}\n\n"
-        f"Trainer label (context only): {trainer_label}\n\n"
+        f"Trainer label context (heading only): {trainer_label}\n\n"
         "RULES:\n"
         "- Return ONE JSON object only (no markdown).\n"
-        "- Output ONLY keys industry_exposure and solutions_delivered.\n"
-        "- Each array must contain exactly 5 strings.\n"
-        "- Learner/brochure tone: sectors and solution capabilities — never org/client names from CRM.\n"
-        "- Never use ALL CAPS for list items; Title Case or sentence case.\n"
-        "- Max 72 characters per string.\n"
-        "- Do NOT change training_delivered, profile narrative, programs, or experience sections.\n"
-        "- Ground changes in the refine instruction and existing list context; do not invent credentials.\n\n"
-        "OUTPUT JSON SCHEMA:\n"
+        "- Include ONLY JSON keys you change to satisfy the instruction; omit unchanged keys.\n"
+        "- Apply the instruction to every relevant section (tagline, bio, programs, industry exposure, "
+        "solutions delivered, strengths, professional experience, awards, etc.).\n"
+        "- If the instruction mentions tagline, titles, professional titles, or roles under the name, "
+        "you MUST include key professional_titles in your response.\n"
+        "- Do NOT use ellipsis or placeholder truncation; shorten and rewrite to fit layout limits.\n"
+        "- Do NOT invent employers, credentials, dates, or certifications not grounded in the current JSON "
+        "or the instruction.\n"
+        "- Preserve third-person brochure tone ('The Trainer' / 'This Trainer') in narrative fields.\n"
+        "- industry_exposure and solutions_delivered: when returned, each array has exactly 5 strings, "
+        "max 72 characters each, Title Case or sentence case, never ALL CAPS.\n"
+        "- professional_experience_sections: when returned, exactly 3 objects with 2 bullets each; "
+        "bullets target 85–115 characters (hard max 130); titles max 100 characters.\n"
+        "- programs_trained: when returned, 18–24 items, max 72 characters each.\n"
+        "- key_skills: when returned, 10–11 items, max 50 characters each.\n"
+        f"- Tagline rules (when professional_titles is included):\n{tagline_rules}\n\n"
+        "REFERENCE OUTPUT SHAPE (only for keys you return):\n"
         f"{schema_hint}\n"
     )
 
@@ -261,11 +293,12 @@ def refine_generated_profile_json(
         output_text = response.output_text or ""
         refined_obj = _extract_json_object(output_text)
         merged = _merge_refined_profile_dict(existing_profile, refined_obj)
+        updated_keys = sorted(k for k in refined_obj if k in REFINABLE_PROFILE_KEYS)
         logger.info(
-            "REFINE_JSON_DONE provider=%s model=%s merged_keys=%s",
+            "REFINE_JSON_DONE provider=%s model=%s updated_keys=%s",
             resolved_provider,
             resolved_model,
-            len(merged),
+            updated_keys,
         )
         return merged, resolved_provider, output_text
 
@@ -290,11 +323,12 @@ def refine_generated_profile_json(
         output_text = "\n".join(text_blocks)
         refined_obj = _extract_json_object(output_text)
         merged = _merge_refined_profile_dict(existing_profile, refined_obj)
+        updated_keys = sorted(k for k in refined_obj if k in REFINABLE_PROFILE_KEYS)
         logger.info(
-            "REFINE_JSON_DONE provider=%s model=%s merged_keys=%s",
+            "REFINE_JSON_DONE provider=%s model=%s updated_keys=%s",
             resolved_provider,
             resolved_model,
-            len(merged),
+            updated_keys,
         )
         return merged, resolved_provider, output_text
 

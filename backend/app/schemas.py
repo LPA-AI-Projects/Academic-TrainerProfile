@@ -72,7 +72,6 @@ class GeneratedProfilePayload(BaseModel):
     certificates: list[str] = Field(default_factory=list)
     awards_and_recognitions: list[str] = Field(default_factory=list)
     board_experience: list[str] = Field(default_factory=list)
-    training_delivered: list[str] = Field(default_factory=list)
     key_skills: list[str] = Field(default_factory=list)
     # Page 2 left column (brochure): sector / vertical exposure and capability-style solution lines.
     industry_exposure: list[str] = Field(default_factory=list)
@@ -123,7 +122,10 @@ class RefineProfileRequest(BaseModel):
     """Body for ``POST /api/v1/profiles/refine``."""
 
     # Primary field: narrative change instructions (no artificial max length; HTTP limits still apply).
-    refine: str | None = Field(default=None, description="How to change the profile narrative.")
+    refine: str | None = Field(
+        default=None,
+        description="How to change the brochure profile (tagline, bio, lists, experience, etc.).",
+    )
     # Deprecated alias for Deluge/old clients — use ``refine``.
     feedback: str | None = Field(default=None, description="Same as ``refine``; ignored when ``refine`` is set.")
     # Parent course / campaign record id (same as webhook zoho_record_id when using parent flow).

@@ -9,6 +9,7 @@ from sqlalchemy import func
 from sqlalchemy.orm import Session
 
 from ..config import get_settings
+from ..utils.http_errors import log_operation_error
 from ..utils.logger import get_logger
 from ..models import TrainerProfileJob
 from ..schemas import GenerateProfileRequest
@@ -506,14 +507,6 @@ def _merge_programs_trained_priority(hints: list[str], model_programs: list[str]
     return out
 
 
-def _parse_multiline_zoho_text(raw: str | None) -> list[str]:
-    """Split Zoho multiline / textarea into one item per non-empty line."""
-    if not raw or not str(raw).strip():
-        return []
-    text = str(raw).replace("\r\n", "\n").replace("\r", "\n")
-    return [line.strip() for line in text.split("\n") if line.strip()]
-
-
 def _company_name_from_payload(payload: GenerateProfileRequest) -> str | None:
     return (payload.company_name or "").strip() or None
 
@@ -671,7 +664,6 @@ def _derive_program_suggestions(raw: dict) -> list[str]:
         _as_string_list(raw.get("professional_titles"))
         + _as_string_list(raw.get("key_skills"))
         + _as_string_list(raw.get("core_competencies"))
-        + _as_string_list(raw.get("training_delivered"))
         + _as_string_list(raw.get("professional_experience"))
         + exp_extra
     )
@@ -726,7 +718,7 @@ def _ensure_strengths_count(raw: dict, min_items: int = 10, max_items: int = 11)
 
     # If still short, reuse CV-derived signals without truncating sentence content.
     cv_signals = _dedupe_list(
-        _as_string_list(raw.get("training_delivered"))
+        _as_string_list(raw.get("industry_exposure"))
         + _as_string_list(raw.get("professional_experience"))
     )
     for item in cv_signals:
@@ -786,7 +778,6 @@ def normalize_profile_payload(
     raw: dict,
     *,
     programs_trained_hints: list[str] | None = None,
-    training_delivered_hints: list[str] | None = None,
 ) -> dict:
     csat_raw = raw.get("csat_score")
     batches_raw = raw.get("batches_delivered")
@@ -816,12 +807,6 @@ def normalize_profile_payload(
         ),
         72,
     )
-    model_td = _dedupe_list(_as_string_list(raw.get("training_delivered")))
-    if training_delivered_hints:
-        merged_td = _merge_programs_trained_priority(training_delivered_hints, model_td)
-    else:
-        merged_td = model_td
-    training_delivered = _compact_list(merged_td, max_items=14)
     exp_sections, exp_flat = _normalize_professional_experience_blocks(raw)
     professional_experience = exp_flat
     key_skills = _truncate_list_strings(_ensure_strengths_count(raw, min_items=10, max_items=11), 50)
@@ -861,7 +846,6 @@ def normalize_profile_payload(
         "batches_delivered": batches,
         "profile": profile_text,
         "programs_trained": programs_trained,
-        "training_delivered": training_delivered,
         "education": _as_string_list(raw.get("education")),
         "professional_experience": professional_experience,
         "professional_experience_sections": exp_sections,
@@ -873,11 +857,6 @@ def normalize_profile_payload(
         "industry_exposure": industry_exposure,
         "solutions_delivered": solutions_delivered,
     }
-    if not normalized["training_delivered"]:
-        normalized["training_delivered"] = _compact_list(
-            _as_string_list(raw.get("board_experience")),
-            max_items=14,
-        )
     return normalized
 
 
@@ -891,7 +870,6 @@ async def _complete_job_after_prompt(
     *,
     trainer_display_name: str | None = None,
     programs_trained_hints: list[str] | None = None,
-    training_delivered_hints: list[str] | None = None,
 ) -> TrainerProfileJob:
     settings = get_settings()
     try:
@@ -904,11 +882,9 @@ async def _complete_job_after_prompt(
         hints = programs_trained_hints
         if hints is None:
             hints = list(payload.programs_trained) if payload.programs_trained else None
-        td_hints = training_delivered_hints
         gen = normalize_profile_payload(
             generated_json,
             programs_trained_hints=hints,
-            training_delivered_hints=td_hints,
         )
         # Heading on the CV: Zoho Trainer_Unique_code when provided (parent multi-trainer flow).
         if trainer_display_name and str(trainer_display_name).strip():
@@ -928,8 +904,16 @@ async def _complete_job_after_prompt(
         )
     except Exception as exc:
         job.status = "failed"
-        job.error_message = str(exc)
-        logger.exception("GEN_LLM_FAILED zoho_record_id=%s", payload.zoho_record_id)
+        job.error_message = f"{type(exc).__name__}: {exc}"
+        log_operation_error(
+            logger,
+            "GEN_LLM_FAILED",
+            exc,
+            job_id=job.id,
+            zoho_record_id=payload.zoho_record_id,
+            provider=payload.provider or settings.default_provider,
+            model=payload.model_name or settings.default_model,
+        )
 
     db.add(job)
     db.commit()
@@ -949,11 +933,11 @@ async def _complete_job_after_prompt(
             await _maybe_google_drive_upload_after_pdf(job, db)
             await _maybe_zoho_attach_trainer_pdf_link(job, db, public_base_url=public_base)
         except Exception as exc:
-            job.pdf_generation_error = str(exc)
+            job.pdf_generation_error = f"{type(exc).__name__}: {exc}"
             db.add(job)
             db.commit()
             db.refresh(job)
-            logger.exception("GEN_PDF_FAILED job_id=%s error=%s", job.id, exc)
+            log_operation_error(logger, "GEN_PDF_FAILED", exc, job_id=job.id, zoho_record_id=job.zoho_record_id)
 
     logger.info(
         "GEN_DONE job_id=%s status=%s total_ms=%.1f pdf_error=%s",
@@ -1178,7 +1162,6 @@ async def generate_from_parent_with_trainers(
                     outline_trimmed,
                     trainer_heading_name=heading_label,
                     programs_trained_hints=req_prog_hints,
-                    training_delivered_hints=None,
                 )
 
                 cv_stored = f"zoho://record/{trainer_mod}/{cv_f}/{cv_file_id}"
@@ -1226,7 +1209,6 @@ async def generate_from_parent_with_trainers(
                     t0,
                     trainer_display_name=heading_label,
                     programs_trained_hints=req_prog_hints,
-                    training_delivered_hints=None,
                 )
                 db.refresh(job)
                 jobs_out.append(job)
@@ -1390,7 +1372,6 @@ async def generate_and_store_profile(
         cv_trimmed,
         outline_trimmed,
         programs_trained_hints=req_prog_hints,
-        training_delivered_hints=None,
     )
 
     drive_cn = (payload.course_name or "").strip() or settings.google_drive_fallback_course_name
@@ -1428,6 +1409,5 @@ async def generate_and_store_profile(
         t0,
         trainer_display_name=None,
         programs_trained_hints=req_prog_hints,
-        training_delivered_hints=None,
     )
     return [job]

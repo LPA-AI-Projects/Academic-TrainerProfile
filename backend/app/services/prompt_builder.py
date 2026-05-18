@@ -1,16 +1,21 @@
 import json
 
+# Brochure page-1 tagline: #cv-p1-tagline — items joined with " | " (481px wide, 14px / 18px line-height).
+# At this width, ~205+ joined characters reliably wraps to a 4th line (e.g. long '&' credential chains).
+TAGLINE_JOINED_CHAR_HARD_MAX = 175
+TAGLINE_JOINED_CHAR_TARGET_MAX = 165
 
 PROFILE_OUTPUT_SCHEMA = {
     "full_name": "string (max 18 characters, use 'This Trainer' if needed)",
-    "professional_titles": ["string"],
+    "professional_titles": [
+        f"string (segments joined with ' | '; joined total ≤ {TAGLINE_JOINED_CHAR_HARD_MAX} chars, ≤3 printed lines — see tagline rules)"
+    ],
     "csat_score": "number between 4.5 and 4.9 (1 decimal)",
     "batches_delivered": "integer between 10 and 20",
     "bio_para1": "string (70-85 words)",
     "bio_para2": "string (70-85 words)",
     "profile": "string (optional combined fallback)",
     "programs_trained": ["string"],
-    "training_delivered": ["string"],
     "education": ["string"],
     "professional_experience_sections": [
         {
@@ -32,20 +37,28 @@ PROFILE_OUTPUT_SCHEMA = {
 }
 
 
+PROFESSIONAL_TITLES_TAGLINE_RULES = [
+    "SECTION — JSON key professional_titles (brochure tagline under the trainer name on page 1):",
+    "professional_titles: array of credential-style strings (often 2–5 items). Each entry is one role/specialty; joined with ' | ' in the brochure. Entry count is flexible—do NOT force exactly three entries.",
+    "professional_titles — layout (critical): all entries join into one paragraph (~481px wide, 14px font, 18px line-height). The joined tagline MUST wrap to at most three printed lines. A fourth line (e.g. a lone word like 'Expert' on its own line) is a layout failure.",
+    f"professional_titles — character budget (mandatory): before finishing, mentally join all segments with ' | ' and count every character. The full joined string must be ≤ {TAGLINE_JOINED_CHAR_HARD_MAX} characters (never 176+). "
+    f"Target ≤ {TAGLINE_JOINED_CHAR_TARGET_MAX} characters. If over the limit, rewrite shorter complete phrases—do not truncate with ellipsis or leave incomplete fragments.",
+    "professional_titles — per segment: keep each entry concise (roughly 20–48 characters). If you use 4+ segments, keep each under 40 characters so the joined total stays within the budget.",
+    "professional_titles — style: Title Case or sentence case; never ALL CAPS; no trailing periods; avoid long chains of '&' (e.g. prefer 'Data Storytelling Trainer' over 'Data Storytelling & Analytics Communication Specialist').",
+    "professional_titles — bad pattern (causes line 4): four long segments totaling ~200+ characters when joined; fix by shortening each segment or using fewer segments, not by cutting mid-word.",
+]
+
+
 def build_prompt(
     cv_text: str,
     outlines: list[str],
     *,
     trainer_heading_name: str | None = None,
     programs_trained_hints: list[str] | None = None,
-    training_delivered_hints: list[str] | None = None,
 ) -> str:
     has_outline = bool(outlines)
     heading = (trainer_heading_name or "").strip()
     hints = [str(x).replace("\n", " ").strip() for x in (programs_trained_hints or []) if str(x).strip()][:40]
-    td_hints = [str(x).replace("\n", " ").strip() for x in (training_delivered_hints or []) if str(x).strip()][
-        :30
-    ]
 
     base_rules = [
         "You are a professional Trainer Profile Writer for Learners Point Academy, Dubai.",
@@ -64,6 +77,7 @@ def build_prompt(
             else []
         ),
         "Make course-domain relevance the main focus of profile, experience ordering, and skills (without copying modules verbatim).",
+        *PROFESSIONAL_TITLES_TAGLINE_RULES,
         "SECTION — JSON key professional_experience_sections (brochure section 'Professional experience'): premium executive/advisory format, not employment-style CV roles.",
         "professional_experience_sections: output exactly 3 objects. Each object has title (string) and bullets (array of exactly 2 strings only—never 0, 1, or 3+ bullets). Do not mention company names, organization names, locations, years, clients, or reporting structures in titles or bullets.",
         "professional_experience_sections — casing: never use ALL CAPS or shouting headline casing. Use Title Case for each title string. Use sentence case or Title Case for each bullet string.",
@@ -89,17 +103,6 @@ def build_prompt(
         ),
         "If programs_trained has fewer than 18 explicit points, add inferred points from CV evidence and trainer domain (not generic fillers) until minimum 18 is reached.",
         "Do not exceed 24 points in programs_trained. Each list item must be at most 72 characters (short course-style titles only).",
-        "training_delivered: output exactly 12 to 14 points. Keep each item concise and brochure-friendly, but do not truncate text with ellipses.",
-        *(
-            [
-                "When CLIENT-SUPPLIED TRAINING DELIVERED lines are provided below: list every distinct Zoho line first (same order), normalized to short 'Org – Region' style when possible without inventing regions.",
-                "Then append additional training_delivered items grounded in the CV (clients/orgs) that are not duplicates or near-duplicates of any Zoho line.",
-                "If a CV line matches a Zoho line, keep a single entry — prefer the Zoho wording.",
-            ]
-            if td_hints
-            else []
-        ),
-        "training_delivered must be client/organization names or very short phrases only (no long sentences or narrative). Prefer 'Company – Region' style.",
         "SECTION — JSON key industry_exposure (brochure section INDUSTRY EXPOSURE): output exactly 5 strings. Do not mention company names, client names, or locations in these bullets.",
         "industry_exposure — casing: never use ALL CAPS. Use Title Case (capitalize major words) or sentence case for each string.",
         "industry_exposure: focus only on industries, business sectors, enterprise environments, and operational domains. Wording must align naturally with the course outline (when provided) and the trainer's specialization as evidenced in CV + outline; if unsupported by that evidence, omit rather than invent.",
@@ -107,18 +110,13 @@ def build_prompt(
         "SECTION — JSON key solutions_delivered (brochure section SOLUTIONS DELIVERED): output exactly 5 strings. Do not mention company names, client names, or locations in these bullets.",
         "solutions_delivered — casing: never use ALL CAPS. Use Title Case or sentence case for each string.",
         "solutions_delivered: focus on business solutions, transformation initiatives, capability domains, tools/frameworks, and strategic training applications. Align directly with course outline topics, tools, methodologies, and learning outcomes when outline text is present; otherwise ground only in CV-stated delivery and capability evidence.",
-        "solutions_delivered: modern, strategic, business-impact wording; executive-level positioning; avoid technical overload, academic phrasing, and repetition with industry_exposure or key_skills. Must NOT duplicate or paraphrase training_delivered org/client lines. Each item at most 72 characters.",
+        "solutions_delivered: modern, strategic, business-impact wording; executive-level positioning; avoid technical overload, academic phrasing, and repetition with industry_exposure or key_skills. Each item at most 72 characters.",
         "key_skills (used for STRENGTHS): exactly 10 or 11 points, never exceed 11. Each item at most 50 characters; one short phrase per line.",
         "Prefer clean competency tags (short skill phrases) instead of long program-style statements.",
         "Keep each key_skills point concise and CV/domain aligned; must fit one line in the fixed brochure (no wrapping paragraphs).",
-        "Do not repeat the same or near-duplicate wording across programs_trained, training_delivered, industry_exposure, solutions_delivered, key_skills, or professional_experience_sections.",
+        "Do not repeat the same or near-duplicate wording across programs_trained, industry_exposure, solutions_delivered, key_skills, or professional_experience_sections.",
         "awards_and_recognitions: max 6 items. Keep wording concise and avoid ellipsis-based truncation.",
         "Avoid repetition and generic filler. Prefer concise premium corporate wording.",
-        *(
-            ["Include training_delivered organizations/clients from CV only after Zoho-supplied lines are exhausted."]
-            if td_hints
-            else ["Include training_delivered organizations/clients if identifiable from CV."]
-        ),
         "Do not map education entries into awards_and_recognitions.",
         "Return strict JSON only (no markdown, no commentary, no extra keys).",
     ]
@@ -161,14 +159,6 @@ def build_prompt(
         input_context += (
             "\n\nCLIENT-SUPPLIED PROGRAMS (highest priority for programs_trained; merge with CV/outline, no duplicates):\n"
             f"{hint_block}"
-        )
-
-    if td_hints:
-        td_block = "\n".join(f"- {h}" for h in td_hints)
-        input_context += (
-            "\n\nCLIENT-SUPPLIED TRAINING DELIVERED (from Zoho CRM; highest priority for training_delivered; "
-            "then CV-backed orgs, no duplicates):\n"
-            f"{td_block}"
         )
 
     instruction_block = "\n".join(f"- {rule}" for rule in base_rules + mode_rules)

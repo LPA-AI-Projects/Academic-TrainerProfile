@@ -549,19 +549,6 @@ def get_scalar_field_str(record: dict, field_api_name: str) -> str | None:
                         field_api_name,
                     )
                     break
-        elif "training" in fl and "deliver" in fl:
-            for alt in ("Training_Delivered", "Training_delivered", "training_delivered"):
-                if alt == field_api_name:
-                    continue
-                t = record.get(alt)
-                if t is not None:
-                    raw = t
-                    logger.info(
-                        "ZOHO_SCALAR_FIELD_ALIAS resolved=%s requested=%s",
-                        alt,
-                        field_api_name,
-                    )
-                    break
     if raw is None:
         logger.info("ZOHO_SCALAR_FIELD field=%s raw_type=None resolved=(null)", field_api_name)
         return None
