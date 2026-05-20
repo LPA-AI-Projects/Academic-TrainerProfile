@@ -187,11 +187,66 @@ def _get_access_token(*, force_refresh: bool = False) -> str:
     )
 
 
-def download_crm_file_to_path(file_id: str, dest_dir: Path) -> Path:
+def _extension_from_content_type(ctype: str) -> str | None:
+    c = (ctype or "").split(";")[0].strip().lower()
+    if not c:
+        return None
+    if "pdf" in c:
+        return ".pdf"
+    if "msword" in c or "wordprocessingml" in c:
+        return ".docx"
+    if "plain" in c:
+        return ".txt"
+    return None
+
+
+def _extension_from_zoho_attachment(value: object) -> str | None:
+    """Guess extension from Zoho file-upload metadata (``extn``, ``name`` in field JSON)."""
+    if value is None:
+        return None
+    if isinstance(value, list):
+        for item in value:
+            ext = _extension_from_zoho_attachment(item)
+            if ext:
+                return ext
+        return None
+    if not isinstance(value, dict):
+        return None
+    extn = str(value.get("extn") or value.get("Extn") or "").strip().lower()
+    if extn == "pdf":
+        return ".pdf"
+    if extn in ("word", "doc", "docx", "document"):
+        return ".docx"
+    if extn in ("text", "txt"):
+        return ".txt"
+    name = str(value.get("name") or value.get("Name") or "").strip().lower()
+    for suffix in (".docx", ".pdf", ".txt", ".md", ".rtf"):
+        if name.endswith(suffix):
+            return suffix
+    nested = value.get("value")
+    if nested is not None:
+        return _extension_from_zoho_attachment(nested)
+    return None
+
+
+def _extension_from_file_bytes(data: bytes) -> str | None:
+    if len(data) >= 4 and data[:4] == b"%PDF":
+        return ".pdf"
+    if len(data) >= 2 and data[:2] == b"PK":
+        return ".docx"
+    return None
+
+
+def download_crm_file_to_path(
+    file_id: str,
+    dest_dir: Path,
+    *,
+    attachment_meta: object | None = None,
+) -> Path:
     """
     Download a CRM file by id (Zoho CRM /files?id=...) and write under dest_dir.
 
-    Returns absolute path to the saved file (extension guessed from Content-Type when possible).
+    Returns absolute path to the saved file (extension from Content-Type, Zoho metadata, or file signature).
     """
     file_id = (file_id or "").strip()
     if not file_id:
@@ -228,17 +283,32 @@ def download_crm_file_to_path(file_id: str, dest_dir: Path) -> Path:
     dest_dir.mkdir(parents=True, exist_ok=True)
 
     ctype = (resp.headers.get("Content-Type") or "").split(";")[0].strip().lower()
-    ext = ".bin"
-    if "pdf" in ctype:
-        ext = ".pdf"
-    elif "msword" in ctype or "wordprocessingml" in ctype:
-        ext = ".docx"
-    elif "plain" in ctype:
-        ext = ".txt"
+    ext = (
+        _extension_from_content_type(ctype)
+        or _extension_from_zoho_attachment(attachment_meta)
+        or _extension_from_file_bytes(resp.content)
+        or ".bin"
+    )
+    if ext == ".bin":
+        logger.warning(
+            "ZOHO_FILE_EXTENSION_GUESS_FAILED file_id=%s content_type=%r attachment_meta_type=%s "
+            "bytes=%s — parser may reject .bin",
+            file_id,
+            ctype or "(none)",
+            type(attachment_meta).__name__ if attachment_meta is not None else "None",
+            len(resp.content),
+        )
 
     out = dest_dir / f"zoho_cv_{file_id}_{uuid.uuid4().hex[:10]}{ext}"
     out.write_bytes(resp.content)
-    logger.info("Zoho CV downloaded file_id=%s bytes=%s path=%s", file_id, len(resp.content), out)
+    logger.info(
+        "Zoho file downloaded file_id=%s bytes=%s ext=%s content_type=%s path=%s",
+        file_id,
+        len(resp.content),
+        ext,
+        ctype or "(none)",
+        out,
+    )
     return out
 
 

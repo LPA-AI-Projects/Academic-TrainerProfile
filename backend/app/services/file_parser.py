@@ -24,12 +24,29 @@ def _read_text(path: Path) -> str:
     return path.read_text(encoding="utf-8", errors="ignore").strip()
 
 
+def _suffix_from_bytes(path: Path) -> str | None:
+    try:
+        head = path.read_bytes()[:8]
+    except OSError:
+        return None
+    if len(head) >= 4 and head[:4] == b"%PDF":
+        return ".pdf"
+    if len(head) >= 2 and head[:2] == b"PK":
+        return ".docx"
+    return None
+
+
 def read_text_from_path(file_path: str) -> str:
     path = Path(file_path)
     if not path.exists() or not path.is_file():
         raise FileNotFoundError(f"File path not found: {file_path}")
 
     suffix = path.suffix.lower()
+    if suffix == ".bin":
+        guessed = _suffix_from_bytes(path)
+        if guessed:
+            suffix = guessed
+
     if suffix == ".pdf":
         return _read_pdf(path)
     if suffix == ".docx":
@@ -38,7 +55,7 @@ def read_text_from_path(file_path: str) -> str:
         return _read_text(path)
 
     raise ValueError(
-        f"Unsupported file type '{suffix}'. Use one of: .pdf, .docx, .txt, .md, .rtf"
+        f"Unsupported file type '{path.suffix.lower()}'. Use one of: .pdf, .docx, .txt, .md, .rtf"
     )
 
 

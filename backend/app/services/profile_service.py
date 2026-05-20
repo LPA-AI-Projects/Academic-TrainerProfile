@@ -1141,7 +1141,9 @@ async def generate_from_parent_with_trainers(
 
             temp_cv: Path | None = None
             try:
-                temp_cv = download_crm_file_to_path(cv_file_id, _temp_cv_dir())
+                temp_cv = download_crm_file_to_path(
+                    cv_file_id, _temp_cv_dir(), attachment_meta=cv_raw
+                )
                 cv_text = read_text_from_path(str(temp_cv))
                 cv_trimmed, outline_trimmed = truncate_inputs(cv_text, combined_outlines)
                 logger.info(
