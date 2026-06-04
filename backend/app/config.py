@@ -203,7 +203,8 @@ class Settings(BaseSettings):
     zoho_trainer_module_api_name: str = Field(default="Trainers")
     zoho_trainer_cv_field_api_name: str = Field(default="Trainer_CV")
     zoho_trainer_unique_code_field_api_name: str = Field(default="Trainer_Unique_Code")
-    # When parent field has display text only (e.g. "Sabith Test"), search Trainers by this field then fetch CV + code.
+    # When parent Trainers lookup has no CRM ids (text field or name-only objects), search Trainers by this field.
+    # Main setup is multi-select lookup with {{id, name}}; name search runs only when id parsing returns nothing.
     zoho_trainer_lookup_resolve_by_name: bool = True
     # Trainers module field API name to match parent text (Name, Full_Name, custom text field, …).
     zoho_trainer_search_field_api_name: str = Field(default="Name")

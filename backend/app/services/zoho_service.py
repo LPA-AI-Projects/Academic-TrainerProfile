@@ -5,6 +5,7 @@ Download CRM attachment bytes from Zoho using OAuth2 (refresh token or static ac
 from __future__ import annotations
 
 import json
+import re
 import threading
 import time
 import uuid
@@ -312,12 +313,22 @@ def download_crm_file_to_path(
     return out
 
 
+def _crm_get(path: str, params: dict | None = None) -> dict:
+    """GET Zoho CRM path (v2 or v8) with optional query string."""
+    return _crm_get_with_params(path, params)
+
+
 def _crm_v2_get(path: str) -> dict:
     """GET Zoho CRM v2 path (e.g. /crm/v2/Leads/123)."""
-    return _crm_v2_get_with_params(path, None)
+    return _crm_get_with_params(path, None)
 
 
 def _crm_v2_get_with_params(path: str, params: dict | None) -> dict:
+    """Backward-compatible alias for :func:`_crm_get_with_params`."""
+    return _crm_get_with_params(path, params)
+
+
+def _crm_get_with_params(path: str, params: dict | None) -> dict:
     """GET with optional query string (e.g. Search Records ``?criteria=...``)."""
     try:
         import requests
@@ -345,7 +356,19 @@ def _crm_v2_get_with_params(path: str, params: dict | None) -> dict:
             (resp.text or "")[:800],
         )
     resp.raise_for_status()
-    return resp.json()
+    text = (resp.text or "").strip()
+    if resp.status_code == 204 or not text:
+        return {}
+    try:
+        return resp.json()
+    except ValueError:
+        logger.error(
+            "Zoho CRM GET non-JSON path=%s status=%s body_preview=%s",
+            path,
+            resp.status_code,
+            text[:400],
+        )
+        return {}
 
 
 def _looks_like_zoho_crm_record_id(s: str) -> bool:
@@ -379,7 +402,7 @@ def search_crm_record_ids_by_field(
     crit = f"({field}:{op}:{v})"
     path = f"/crm/v2/{mod}/search"
     try:
-        data = _crm_v2_get_with_params(path, {"criteria": crit})
+        data = _crm_get_with_params(path, {"criteria": crit})
     except Exception:
         logger.exception(
             "ZOHO_SEARCH_FAILED module=%s field=%s op=%s value_len=%s",
@@ -492,29 +515,70 @@ def extract_file_ids_from_zoho_field(value: object) -> list[str]:
     return out
 
 
-def fetch_crm_record(module_api_name: str, crm_record_id: str) -> dict:
+def fetch_crm_record(
+    module_api_name: str,
+    crm_record_id: str,
+    *,
+    api_version: str = "v8",
+) -> dict:
+    """
+    Fetch one CRM record by id.
+
+    Defaults to **v8** (same as Zoho UI / Postman) so multi-module lookup subforms return full
+    nested ``{{Trainers: {{id, name}}, id: junction_row_id}}`` lists instead of collapsed
+    summary strings from v2 (e.g. ``'PRIYA MENON, Dalia E.. & More'``).
+    """
     module_api_name = (module_api_name or "").strip()
     crm_record_id = (crm_record_id or "").strip()
     if not module_api_name or not crm_record_id:
         raise ValueError("module_api_name and crm_record_id are required")
-    # Path segment: module API name + record id
-    path = f"/crm/v2/{module_api_name}/{crm_record_id}"
-    data = _crm_v2_get(path)
-    rows = data.get("data")
-    if not isinstance(rows, list) or not rows:
-        raise RuntimeError(f"Zoho CRM record not found or empty: module={module_api_name} id={crm_record_id}")
-    row = rows[0]
-    if not isinstance(row, dict):
-        raise RuntimeError("Unexpected Zoho CRM record shape")
-    keys = sorted(row.keys())
-    logger.info(
-        "ZOHO_CRM_RECORD_GET module=%s id=%s field_count=%s field_names=%s",
-        module_api_name,
-        crm_record_id,
-        len(keys),
-        keys[:80],
-    )
-    return row
+    ver = (api_version or "v8").strip().lower()
+    if ver not in ("v2", "v8"):
+        ver = "v8"
+
+    last_err: Exception | None = None
+    attempts = (ver, "v2") if ver == "v8" else (ver,)
+    for attempt_ver in attempts:
+        path = f"/crm/{attempt_ver}/{module_api_name}/{crm_record_id}"
+        try:
+            data = _crm_get(path)
+            rows = data.get("data")
+            if not isinstance(rows, list) or not rows:
+                msg = (
+                    f"Zoho CRM record not found or empty: api={attempt_ver} "
+                    f"module={module_api_name} id={crm_record_id}"
+                )
+                if attempt_ver == "v8" and "v2" in attempts:
+                    logger.warning("%s; retrying v2", msg)
+                    last_err = RuntimeError(msg)
+                    continue
+                raise RuntimeError(msg)
+            row = rows[0]
+            if not isinstance(row, dict):
+                raise RuntimeError("Unexpected Zoho CRM record shape")
+            keys = sorted(row.keys())
+            logger.info(
+                "ZOHO_CRM_RECORD_GET api=%s module=%s id=%s field_count=%s field_names=%s",
+                attempt_ver,
+                module_api_name,
+                crm_record_id,
+                len(keys),
+                keys[:80],
+            )
+            return row
+        except Exception as exc:
+            last_err = exc
+            if attempt_ver == "v2" or "v2" not in attempts:
+                raise
+            logger.warning(
+                "ZOHO_CRM_RECORD_GET_V8_FAILED module=%s id=%s err=%s; retrying v2",
+                module_api_name,
+                crm_record_id,
+                exc,
+            )
+    if last_err:
+        raise last_err
+    raise RuntimeError(f"Zoho CRM record fetch failed: module={module_api_name} id={crm_record_id}")
 
 
 def get_file_id_from_record_field(
@@ -540,19 +604,78 @@ def get_file_id_from_record_field(
     return fid
 
 
-def extract_multiselect_lookup_ids(raw: object) -> list[str]:
-    """
-    Parse Zoho **multi-select lookup** / **lookup** values into CRM record id strings.
+def _normalize_collapsed_lookup_display(s: str) -> str:
+    """Strip Zoho UI suffixes like ``'..., Dalia E.. & More'`` before name search."""
+    t = (s or "").strip()
+    t = re.sub(r"\s*&\s*More\s*$", "", t, flags=re.IGNORECASE)
+    return t.strip()
 
-    Zoho Get Record typically returns:
+
+def _lookup_linked_record_id(item: dict, *, lookup_field_name: str = "") -> str | None:
+    """
+    Linked module record id from a lookup row.
+
+    Closure_Activities subform rows look like::
+
+        {"Trainers": {"id": "<trainer_id>", "name": "PRIYA MENON"}, "id": "<junction_row_id>"}
+
+    The top-level ``id`` is the subform/junction row — **not** the Trainers module id.
+    """
+    if not isinstance(item, dict):
+        return None
+    lf = (lookup_field_name or "").strip()
+    prefer_keys = tuple(k for k in (lf, "Trainers") if k)
+
+    for key in prefer_keys:
+        nested = item.get(key)
+        if isinstance(nested, dict):
+            rid = str(nested.get("id") or nested.get("Id") or "").strip()
+            if _looks_like_zoho_crm_record_id(rid):
+                return rid
+
+    linked: list[str] = []
+    for k, v in item.items():
+        if k in ("id", "Id") or str(k).startswith("$"):
+            continue
+        if isinstance(v, dict):
+            rid = str(v.get("id") or v.get("Id") or "").strip()
+            if _looks_like_zoho_crm_record_id(rid):
+                linked.append(rid)
+
+    if len(linked) == 1:
+        return linked[0]
+
+    top = str(item.get("id") or item.get("Id") or "").strip()
+    if _looks_like_zoho_crm_record_id(top) and not linked:
+        return top
+    return None
+
+
+def extract_multiselect_lookup_ids(
+    raw: object,
+    *,
+    lookup_field_name: str = "",
+) -> list[str]:
+    """
+    Parse Zoho **multi-select lookup** / **lookup** / **subform** values into linked record ids.
+
+    Supports:
     - Multi-select lookup: ``[{"id": "...", "name": "..."}, ...]``
     - Single lookup: ``{"id": "...", "name": "..."}``
+    - Multi-module subform (v8): ``[{"Trainers": {"id": "...", "name": "..."}, "id": "..."}, ...]``
 
     Plain strings are **only** treated as ids when they look like Zoho record ids (long digits).
-    A human-readable string (e.g. ``'Sabith Test'``) returns ``[]`` — use a real lookup field or
-    enable name search via ``ZOHO_TRAINER_LOOKUP_RESOLVE_BY_NAME`` + ``ZOHO_TRAINER_SEARCH_FIELD_API_NAME``.
+    Collapsed UI strings (e.g. ``'PRIYA MENON, Dalia E.. & More'``) return ``[]``.
     """
     out: list[str] = []
+    seen: set[str] = set()
+    lf = (lookup_field_name or "").strip()
+
+    def push(rid: str) -> None:
+        if rid and rid not in seen:
+            seen.add(rid)
+            out.append(rid)
+
     if raw is None:
         logger.info(
             "ZOHO_MS_LOOKUP_PARSE raw_type=None raw_preview=(null) parsed_ids=[] count=0",
@@ -561,13 +684,14 @@ def extract_multiselect_lookup_ids(raw: object) -> list[str]:
     if isinstance(raw, list):
         for item in raw:
             if isinstance(item, dict):
-                rid = str(item.get("id") or item.get("Id") or "").strip()
+                rid = _lookup_linked_record_id(item, lookup_field_name=lf)
                 if rid:
-                    out.append(rid)
+                    push(rid)
             elif isinstance(item, str) and item.strip() and _looks_like_zoho_crm_record_id(item):
-                out.append(item.strip())
+                push(item.strip())
         logger.info(
-            "ZOHO_MS_LOOKUP_PARSE raw_type=list raw_preview=%s parsed_ids=%s count=%s",
+            "ZOHO_MS_LOOKUP_PARSE raw_type=list lookup_field=%s raw_preview=%s parsed_ids=%s count=%s",
+            lf or "(none)",
             format_zoho_field_debug(raw),
             out,
             len(out),
@@ -576,26 +700,144 @@ def extract_multiselect_lookup_ids(raw: object) -> list[str]:
     if isinstance(raw, str):
         s = raw.strip()
         if s and _looks_like_zoho_crm_record_id(s):
-            out = [s]
+            push(s)
         logger.info(
-            "ZOHO_MS_LOOKUP_PARSE raw_type=str value_preview=%r parsed_ids=%s count=%s",
+            "ZOHO_MS_LOOKUP_PARSE raw_type=str value_preview=%r parsed_ids=%s count=%s collapsed=%s",
             s[:200] if s else s,
             out,
             len(out),
+            bool(s and "&" in s.lower() and "more" in s.lower()),
         )
         return out
     if isinstance(raw, dict):
-        rid = str(raw.get("id") or raw.get("Id") or "").strip()
+        rid = _lookup_linked_record_id(raw, lookup_field_name=lf)
         if rid:
-            out.append(rid)
+            push(rid)
     logger.info(
-        "ZOHO_MS_LOOKUP_PARSE raw_type=%s raw_preview=%s parsed_ids=%s count=%s",
+        "ZOHO_MS_LOOKUP_PARSE raw_type=%s lookup_field=%s raw_preview=%s parsed_ids=%s count=%s",
         type(raw).__name__,
+        lf or "(none)",
         format_zoho_field_debug(raw),
         out,
         len(out),
     )
     return out
+
+
+def extract_lookup_search_terms(
+    raw: object,
+    *,
+    lookup_field_name: str = "",
+) -> list[str]:
+    """
+    Human-readable labels from a Zoho lookup / multi-select value for Search API resolution.
+
+    Used when ``extract_multiselect_lookup_ids`` returns no ids (text field, or list items with
+    ``name`` but missing ``id``). Skips values that look like CRM record ids.
+    """
+    out: list[str] = []
+    seen: set[str] = set()
+    lf = (lookup_field_name or "").strip()
+
+    def add(value: object) -> None:
+        t = _normalize_collapsed_lookup_display(str(value or ""))
+        t = re.sub(r"\.{2,}$", "", t).strip()
+        if not t or _looks_like_zoho_crm_record_id(t):
+            return
+        if re.search(r"&\s*more\s*$", t, flags=re.IGNORECASE):
+            return
+        key = t.casefold()
+        if key in seen:
+            return
+        seen.add(key)
+        out.append(t)
+
+    if raw is None:
+        return out
+    if isinstance(raw, str):
+        normalized = _normalize_collapsed_lookup_display(raw)
+        for part in re.split(r"[,;]", normalized):
+            add(part)
+        return out
+    if isinstance(raw, dict):
+        nested = raw.get(lf) if lf else None
+        if isinstance(nested, dict):
+            for key in ("name", "Name", "display_value", "Display_Value"):
+                v = nested.get(key)
+                if v is not None:
+                    add(v)
+        for key in ("name", "Name", "display_value", "Display_Value"):
+            v = raw.get(key)
+            if v is not None:
+                add(v)
+        return out
+    if isinstance(raw, list):
+        for item in raw:
+            if isinstance(item, dict):
+                if _lookup_linked_record_id(item, lookup_field_name=lf):
+                    continue
+                if lf:
+                    nested = item.get(lf)
+                    if isinstance(nested, dict):
+                        for key in ("name", "Name", "display_value", "Display_Value"):
+                            v = nested.get(key)
+                            if v is not None:
+                                add(v)
+                for key in ("name", "Name", "display_value", "Display_Value"):
+                    v = item.get(key)
+                    if v is not None:
+                        add(v)
+            elif isinstance(item, str) and not _looks_like_zoho_crm_record_id(item):
+                add(item)
+        return out
+    return out
+
+
+def resolve_trainer_record_ids_from_parent_lookup(
+    lookup_raw: object,
+    *,
+    trainer_module: str,
+    lookup_field_name: str = "",
+    resolve_by_name: bool,
+    search_field_api_name: str,
+) -> list[str]:
+    """
+    Resolve Trainers module record ids from a parent lookup field.
+
+    Main setup: parse CRM lookup ids from v8 nested subform rows (``Trainers.id``).
+    When that yields no ids and ``resolve_by_name`` is enabled, search the Trainers module using
+    display labels from the field (plain text, or ``name`` on lookup objects without an id).
+    """
+    trainer_mod = (trainer_module or "").strip()
+    lf = (lookup_field_name or "").strip()
+    trainer_ids = extract_multiselect_lookup_ids(lookup_raw, lookup_field_name=lf)
+    if trainer_ids or not resolve_by_name or not trainer_mod:
+        return trainer_ids
+
+    match_field = (search_field_api_name or "").strip()
+    if not match_field:
+        return trainer_ids
+
+    for part in extract_lookup_search_terms(lookup_raw, lookup_field_name=lf):
+        found: list[str] = []
+        for op in ("equals", "starts_with"):
+            found = search_crm_record_ids_by_field(
+                trainer_mod, match_field, part, operator=op
+            )
+            if found:
+                logger.info(
+                    "GEN_PARENT_NAME_SEARCH_HIT part=%r operator=%s field=%s ids=%s",
+                    part,
+                    op,
+                    match_field,
+                    found,
+                )
+                break
+        for rid in found:
+            if rid not in trainer_ids:
+                trainer_ids.append(rid)
+
+    return trainer_ids
 
 
 def get_scalar_field_str(record: dict, field_api_name: str) -> str | None:

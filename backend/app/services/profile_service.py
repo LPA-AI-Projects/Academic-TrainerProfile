@@ -27,10 +27,10 @@ from .zoho_service import (
     extract_file_ids_from_zoho_field,
     extract_multiselect_lookup_ids,
     fetch_crm_record,
+    resolve_trainer_record_ids_from_parent_lookup,
     format_zoho_field_debug,
     get_file_id_from_record_field,
     get_scalar_field_str,
-    search_crm_record_ids_by_field,
 )
 
 logger = get_logger(__name__)
@@ -129,9 +129,10 @@ def _job_drive_course_name(job: TrainerProfileJob) -> str:
     return (settings.google_drive_fallback_course_name or "Course").strip()
 
 
-def trainer_unique_lookup_base(value: str) -> str:
-    """Strip optional ``_vN`` suffix for comparing Trainer_Unique_Code (e.g. ``TR2001_v2`` → ``TR2001``)."""
-    return re.sub(r"_v\d+$", "", (value or "").strip(), flags=re.IGNORECASE)
+def _trainer_key_from_crm_record(record: dict, *, code_field: str) -> str:
+    """Trainer_Unique_Code (or configured field) for DB outline history — same key as parent multi-trainer flow."""
+    code = (get_scalar_field_str(record, code_field) or "").strip()
+    return trainer_unique_lookup_base(code) if code else ""
 
 
 def parse_trainer_field_explicit_version(value: str | None) -> int | None:
@@ -1020,35 +1021,18 @@ async def generate_from_parent_with_trainers(
         type(lookup_raw).__name__,
         format_zoho_field_debug(lookup_raw),
     )
-    trainer_ids = extract_multiselect_lookup_ids(lookup_raw)
-    if (
-        not trainer_ids
-        and settings.zoho_trainer_lookup_resolve_by_name
-        and isinstance(lookup_raw, str)
-        and lookup_raw.strip()
-    ):
-        match_field = settings.zoho_trainer_search_field_api_name.strip()
-        for part in [p.strip() for p in re.split(r"[,;]", lookup_raw) if p.strip()]:
-            found: list[str] = []
-            for op in ("equals", "starts_with"):
-                found = search_crm_record_ids_by_field(
-                    trainer_mod, match_field, part, operator=op
-                )
-                if found:
-                    logger.info(
-                        "GEN_PARENT_NAME_SEARCH_HIT part=%r operator=%s ids=%s",
-                        part,
-                        op,
-                        found,
-                    )
-                    break
-            for rid in found:
-                if rid not in trainer_ids:
-                    trainer_ids.append(rid)
+    trainer_ids = resolve_trainer_record_ids_from_parent_lookup(
+        lookup_raw,
+        trainer_module=trainer_mod,
+        lookup_field_name=lookup_f,
+        resolve_by_name=settings.zoho_trainer_lookup_resolve_by_name,
+        search_field_api_name=settings.zoho_trainer_search_field_api_name,
+    )
+    if trainer_ids and not extract_multiselect_lookup_ids(lookup_raw, lookup_field_name=lookup_f):
         logger.info(
             "GEN_PARENT_TRAINER_IDS_FROM_NAME_SEARCH parent_id=%s match_field=%s resolved_count=%s ids=%s",
             parent_id,
-            match_field,
+            settings.zoho_trainer_search_field_api_name.strip(),
             len(trainer_ids),
             trainer_ids,
         )
@@ -1261,6 +1245,8 @@ async def generate_and_store_profile(
     )
     temp_zoho_paths: list[Path] = []
     stored_outline_refs: list[str] = list(payload.course_outline_paths)
+    legacy_trainer_key = ""
+    legacy_trainer_code = ""
     logger.info(
         "GEN_START zoho_record_id=%s cv_present=%s outline_paths=%s provider=%s model=%s",
         payload.zoho_record_id,
@@ -1273,6 +1259,25 @@ async def generate_and_store_profile(
         mod = (settings.zoho_module_api_name or "").strip()
         cv_field = (settings.zoho_cv_field_api_name or "").strip()
         outline_field = (settings.zoho_outline_field_api_name or "").strip()
+        code_field = (settings.zoho_trainer_unique_code_field_api_name or "").strip()
+        rid = (payload.zoho_record_id or "").strip()
+        if mod and rid and code_field:
+            try:
+                tr_row = fetch_crm_record(mod, rid)
+                legacy_trainer_code = (get_scalar_field_str(tr_row, code_field) or "").strip()
+                legacy_trainer_key = _trainer_key_from_crm_record(tr_row, code_field=code_field)
+                logger.info(
+                    "GEN_LEGACY_TRAINER_KEY zoho_record_id=%s trainer_key=%s",
+                    rid,
+                    legacy_trainer_key or "(none)",
+                )
+            except Exception as exc:
+                logger.warning(
+                    "GEN_LEGACY_TRAINER_KEY_FETCH_FAILED zoho_record_id=%s field=%s err=%s",
+                    rid,
+                    code_field,
+                    exc,
+                )
 
         if payload.cv and payload.cv.strip():
             zoho_id = payload.cv.strip()
@@ -1340,12 +1345,19 @@ async def generate_and_store_profile(
         company = _company_name_from_payload(payload)
         historical_outlines: list[str] = []
         if company:
-            historical_outlines = _fetch_prior_outline_snapshots(
-                db,
-                company_name=company,
-                trainer_key="",
-                zoho_record_id=(payload.zoho_record_id or "").strip(),
-            )
+            if legacy_trainer_key:
+                historical_outlines = _fetch_prior_outline_snapshots(
+                    db,
+                    company_name=company,
+                    trainer_key=legacy_trainer_key,
+                )
+            else:
+                historical_outlines = _fetch_prior_outline_snapshots(
+                    db,
+                    company_name=company,
+                    trainer_key="",
+                    zoho_record_id=rid,
+                )
         combined_outlines = _merge_outlines_for_generation(current_outlines, historical_outlines)
         cv_trimmed, outline_trimmed = truncate_inputs(cv_text, combined_outlines)
         logger.info(
@@ -1395,6 +1407,11 @@ async def generate_and_store_profile(
             "historical_outline_blocks": len(historical_outlines),
             "drive_course_name": drive_cn,
             "programs_trained_hints": req_prog_hints or [],
+            **(
+                {"trainer_unique_code": legacy_trainer_code[:40]}
+                if legacy_trainer_code
+                else {}
+            ),
         },
     )
     db.add(job)
@@ -1409,7 +1426,7 @@ async def generate_and_store_profile(
         public_base_url,
         prompt,
         t0,
-        trainer_display_name=None,
+        trainer_display_name=legacy_trainer_code[:40] if legacy_trainer_code else None,
         programs_trained_hints=req_prog_hints,
     )
     return [job]
