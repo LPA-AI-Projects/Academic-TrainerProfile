@@ -220,7 +220,13 @@ def _extension_from_zoho_attachment(value: object) -> str | None:
         return ".docx"
     if extn in ("text", "txt"):
         return ".txt"
-    name = str(value.get("name") or value.get("Name") or "").strip().lower()
+    name = str(
+        value.get("name")
+        or value.get("Name")
+        or value.get("File_Name__s")
+        or value.get("file_name__s")
+        or ""
+    ).strip().lower()
     for suffix in (".docx", ".pdf", ".txt", ".md", ".rtf"):
         if name.endswith(suffix):
             return suffix
@@ -301,6 +307,12 @@ def download_crm_file_to_path(
         )
 
     out = dest_dir / f"zoho_cv_{file_id}_{uuid.uuid4().hex[:10]}{ext}"
+    if not resp.content:
+        raise RuntimeError(
+            f"Zoho file download returned 0 bytes for id={file_id!r}. "
+            "For v8 attachments use File_Id__s (file hash), not the attachment row id."
+        )
+
     out.write_bytes(resp.content)
     logger.info(
         "Zoho file downloaded file_id=%s bytes=%s ext=%s content_type=%s path=%s",
@@ -443,10 +455,73 @@ def search_crm_record_ids_by_field_equals(
     )
 
 
+# Keys for /crm/v2/files?id=... — v8 attachments use File_Id__s; must be before generic ``id``.
+_FILE_DOWNLOAD_ID_KEYS: tuple[str, ...] = (
+    "File_Id__s",
+    "file_id__s",
+    "file_Id",
+    "file_id",
+    "File_Id",
+    "File_ID",
+    "attachment_Id",
+    "attachment_id",
+    "Attachment_Id",
+    "id",
+    "Id",
+)
+
+
+def _is_zoho_file_download_id(value: str) -> bool:
+    """
+    True when ``value`` is a Zoho **file hash** for GET /crm/v2/files, not a numeric CRM/attachment row id.
+    """
+    s = (value or "").strip()
+    if not s:
+        return False
+    if _looks_like_zoho_crm_record_id(s):
+        return False
+    return True
+
+
+def _file_id_from_attachment_dict(value: dict) -> str | None:
+    """Pick the best file download id from one Zoho file-upload / attachment metadata dict."""
+    record_fallback: str | None = None
+    for key in _FILE_DOWNLOAD_ID_KEYS:
+        raw = value.get(key)
+        if not isinstance(raw, str) or not raw.strip():
+            continue
+        s = raw.strip()
+        if _is_zoho_file_download_id(s):
+            return s
+        if _looks_like_zoho_crm_record_id(s) and record_fallback is None:
+            record_fallback = s
+    for key, raw in value.items():
+        if not isinstance(key, str) or not isinstance(raw, str) or not raw.strip():
+            continue
+        kl = key.lower()
+        if "file" in kl and "id" in kl:
+            s = raw.strip()
+            if _is_zoho_file_download_id(s):
+                return s
+    if record_fallback:
+        logger.warning(
+            "ZOHO_FILE_ID_NUMERIC_FALLBACK id=%s (prefer File_Id__s / file_Id when present) keys=%s",
+            record_fallback,
+            list(value.keys())[:12],
+        )
+        return record_fallback
+    nested = value.get("value")
+    if nested is not None:
+        return extract_file_id_from_zoho_field(nested)
+    return None
+
+
 def extract_file_id_from_zoho_field(value: object) -> str | None:
     """
     Parse Zoho File Upload field value(s) and return a CRM file id for /crm/v2/files?id=...
-    Handles dict, list of dicts, and plain id strings.
+
+    v8 attachment rows expose ``File_Id__s`` (file hash) and ``id`` (attachment row id) — only the
+    former works with the Files API.
     """
     if value is None:
         return None
@@ -454,24 +529,7 @@ def extract_file_id_from_zoho_field(value: object) -> str | None:
         s = value.strip()
         return s or None
     if isinstance(value, dict):
-        for key in (
-            "file_Id",
-            "file_id",
-            "File_Id",
-            "File_ID",
-            "id",
-            "Id",
-            "attachment_id",
-            "Attachment_Id",
-        ):
-            raw = value.get(key)
-            if isinstance(raw, str) and raw.strip():
-                return raw.strip()
-        # Nested single-file shape
-        nested = value.get("value")
-        if nested is not None:
-            return extract_file_id_from_zoho_field(nested)
-        return None
+        return _file_id_from_attachment_dict(value)
     if isinstance(value, list):
         for item in value:
             fid = extract_file_id_from_zoho_field(item)

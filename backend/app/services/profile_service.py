@@ -1059,17 +1059,45 @@ async def generate_from_parent_with_trainers(
 
     try:
         outline_blob: list[str] = []
-        for outline_id in outline_ids:
-            op = download_crm_file_to_path(outline_id, _temp_cv_dir())
-            outline_paths.append(op)
-            outline_text = read_text_from_path(str(op))
-            outline_blob.append(outline_text)
-            logger.info(
-                "GEN_PARENT_OUTLINE_TEXT parent_id=%s outline_file_id=%s char_count=%s",
-                parent_id,
-                outline_id,
-                len(outline_text),
-            )
+        outline_items = (
+            [x for x in outline_raw if isinstance(x, dict)]
+            if isinstance(outline_raw, list)
+            else []
+        )
+        if outline_items:
+            for item in outline_items:
+                outline_fid = extract_file_id_from_zoho_field(item)
+                if not outline_fid:
+                    logger.warning(
+                        "GEN_PARENT_OUTLINE_SKIP_ITEM parent_id=%s keys=%s",
+                        parent_id,
+                        list(item.keys())[:12],
+                    )
+                    continue
+                op = download_crm_file_to_path(
+                    outline_fid, _temp_cv_dir(), attachment_meta=item
+                )
+                outline_paths.append(op)
+                outline_text = read_text_from_path(str(op))
+                outline_blob.append(outline_text)
+                logger.info(
+                    "GEN_PARENT_OUTLINE_TEXT parent_id=%s outline_file_id=%s char_count=%s",
+                    parent_id,
+                    outline_fid,
+                    len(outline_text),
+                )
+        else:
+            for outline_id in outline_ids:
+                op = download_crm_file_to_path(outline_id, _temp_cv_dir())
+                outline_paths.append(op)
+                outline_text = read_text_from_path(str(op))
+                outline_blob.append(outline_text)
+                logger.info(
+                    "GEN_PARENT_OUTLINE_TEXT parent_id=%s outline_file_id=%s char_count=%s",
+                    parent_id,
+                    outline_id,
+                    len(outline_text),
+                )
 
         cn_field = (settings.zoho_parent_course_name_field_api_name or "").strip()
         if (payload.course_name or "").strip():
