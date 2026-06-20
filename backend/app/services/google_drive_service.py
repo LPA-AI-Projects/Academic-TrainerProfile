@@ -1,4 +1,6 @@
 import os
+import re
+from pathlib import Path
 from typing import Any
 
 import requests
@@ -20,6 +22,138 @@ _FOLDER_TRAINER_PROFILE = "trainer_profile"
 
 class GoogleDriveUploadError(RuntimeError):
     """Raised when Google Drive upload/auth fails."""
+
+
+class GoogleDriveDownloadError(RuntimeError):
+    """Raised when Google Drive outline download fails."""
+
+
+_DRIVE_FILE_ID_PATTERNS = (
+    re.compile(r"drive\.google\.com/file/d/([a-zA-Z0-9_-]+)", re.I),
+    re.compile(r"drive\.google\.com/open\?id=([a-zA-Z0-9_-]+)", re.I),
+    re.compile(r"drive\.google\.com/uc\?(?:[^#]*&)?id=([a-zA-Z0-9_-]+)", re.I),
+    re.compile(r"docs\.google\.com/document/d/([a-zA-Z0-9_-]+)", re.I),
+    re.compile(r"docs\.google\.com/spreadsheets/d/([a-zA-Z0-9_-]+)", re.I),
+    re.compile(r"docs\.google\.com/presentation/d/([a-zA-Z0-9_-]+)", re.I),
+)
+
+
+def extract_google_drive_file_id(url: str) -> str | None:
+    raw = (url or "").strip()
+    if not raw:
+        return None
+    for pat in _DRIVE_FILE_ID_PATTERNS:
+        m = pat.search(raw)
+        if m:
+            return m.group(1)
+    return None
+
+
+def _guess_suffix_from_content_type(content_type: str) -> str:
+    ct = (content_type or "").lower()
+    if "pdf" in ct:
+        return ".pdf"
+    if "word" in ct or "officedocument.wordprocessingml" in ct:
+        return ".docx"
+    if "plain" in ct:
+        return ".txt"
+    return ".bin"
+
+
+def _download_public_drive_file(file_id: str, dest_dir: Path) -> Path:
+    """Best-effort download for publicly shared Drive files (no OAuth)."""
+    dest_dir.mkdir(parents=True, exist_ok=True)
+    candidates = [
+        f"https://drive.google.com/uc?export=download&id={file_id}",
+        f"https://docs.google.com/document/d/{file_id}/export?format=pdf",
+        f"https://docs.google.com/document/d/{file_id}/export?format=txt",
+    ]
+    last_err: Exception | None = None
+    for url in candidates:
+        try:
+            resp = requests.get(url, timeout=180, allow_redirects=True)
+            if resp.status_code >= 400 or not resp.content:
+                continue
+            suffix = _guess_suffix_from_content_type(resp.headers.get("content-type") or "")
+            out = dest_dir / f"gdrive_{file_id[:24]}{suffix}"
+            out.write_bytes(resp.content)
+            logger.info(
+                "DRIVE_PUBLIC_DOWNLOAD file_id=%s bytes=%s path=%s url=%s",
+                file_id,
+                len(resp.content),
+                out,
+                url[:100],
+            )
+            return out
+        except Exception as exc:
+            last_err = exc
+            continue
+    raise GoogleDriveDownloadError(
+        f"Could not download public Google Drive file id={file_id!r}: {last_err}"
+    )
+
+
+def _download_oauth_drive_file(file_id: str, dest_dir: Path, access_token: str) -> Path:
+    dest_dir.mkdir(parents=True, exist_ok=True)
+    meta_resp = requests.get(
+        f"{GOOGLE_DRIVE_FILES_URL}/{file_id}",
+        headers={"Authorization": f"Bearer {access_token}"},
+        params={"fields": "id,name,mimeType"},
+        timeout=60,
+    )
+    if meta_resp.status_code >= 400:
+        raise GoogleDriveDownloadError(
+            f"Google Drive metadata failed: HTTP {meta_resp.status_code} body={(meta_resp.text or '')[:800]}"
+        )
+    meta = meta_resp.json() if meta_resp.content else {}
+    mime = str(meta.get("mimeType") or "")
+    name = str(meta.get("name") or file_id)
+    suffix = Path(name).suffix.lower() if "." in name else ""
+    if mime == "application/vnd.google-apps.document":
+        export_url = f"https://www.googleapis.com/drive/v3/files/{file_id}/export"
+        export_params = {"mimeType": "application/pdf"}
+        suffix = suffix or ".pdf"
+    elif mime == "application/vnd.google-apps.spreadsheet":
+        export_url = f"https://www.googleapis.com/drive/v3/files/{file_id}/export"
+        export_params = {"mimeType": "application/pdf"}
+        suffix = suffix or ".pdf"
+    else:
+        export_url = f"https://www.googleapis.com/drive/v3/files/{file_id}"
+        export_params = {"alt": "media"}
+        if not suffix:
+            suffix = _guess_suffix_from_content_type(mime)
+
+    resp = requests.get(
+        export_url,
+        headers={"Authorization": f"Bearer {access_token}"},
+        params=export_params,
+        timeout=300,
+    )
+    if resp.status_code >= 400:
+        raise GoogleDriveDownloadError(
+            f"Google Drive download failed: HTTP {resp.status_code} body={(resp.text or '')[:800]}"
+        )
+    out = dest_dir / f"gdrive_{file_id[:24]}{suffix or '.bin'}"
+    out.write_bytes(resp.content)
+    logger.info("DRIVE_OAUTH_DOWNLOAD file_id=%s bytes=%s path=%s", file_id, len(resp.content), out)
+    return out
+
+
+def download_drive_file_to_path(url: str, dest_dir: Path) -> Path:
+    """
+    Download an outline file from a Google Drive / Docs share link to ``dest_dir``.
+    Uses OAuth when configured; otherwise tries public export URLs.
+    """
+    file_id = extract_google_drive_file_id(url)
+    if not file_id:
+        raise GoogleDriveDownloadError(f"Could not parse Google Drive file id from URL: {url!r}")
+    dest_dir.mkdir(parents=True, exist_ok=True)
+    try:
+        access_token = _get_access_token()
+        return _download_oauth_drive_file(file_id, dest_dir, access_token)
+    except GoogleDriveUploadError:
+        logger.info("DRIVE_DOWNLOAD_FALLBACK_PUBLIC file_id=%s (OAuth unavailable)", file_id)
+        return _download_public_drive_file(file_id, dest_dir)
 
 
 def _credential(name_upper: str, setting_attr: str) -> str:

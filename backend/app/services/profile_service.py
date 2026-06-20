@@ -14,7 +14,12 @@ from ..utils.logger import get_logger
 from ..models import TrainerProfileJob
 from ..schemas import GenerateProfileRequest
 from .file_parser import read_text_from_path, truncate_inputs
-from .google_drive_service import GoogleDriveUploadError, upload_trainer_profile_pdf
+from .google_drive_service import (
+    GoogleDriveDownloadError,
+    GoogleDriveUploadError,
+    download_drive_file_to_path,
+    upload_trainer_profile_pdf,
+)
 from .job_pdf import ensure_job_pdf_on_disk, job_pdf_abs_path
 from .llm_client import generate_profile_json
 from .prompt_builder import build_prompt
@@ -32,6 +37,7 @@ from .zoho_service import (
     get_file_id_from_record_field,
     get_scalar_field_str,
 )
+from .bitrix_service import ParsedTrainerProfileChat, parse_zoho_crm_urls
 
 logger = get_logger(__name__)
 
@@ -1458,3 +1464,191 @@ async def generate_and_store_profile(
         programs_trained_hints=req_prog_hints,
     )
     return [job]
+
+
+async def generate_from_bitrix_chat(
+    parsed: ParsedTrainerProfileChat,
+    payload: GenerateProfileRequest,
+    db: Session,
+    *,
+    public_base_url: str | None = None,
+) -> list[TrainerProfileJob]:
+    """
+    Bitrix webhook flow: outline from Google Drive (chat or CRM field) + trainer CVs from Zoho CRM links.
+
+    ``payload.zoho_record_id`` stores the Bitrix parent record id for job grouping / PDF attach target.
+    """
+    settings = get_settings()
+    parent_id = (payload.zoho_record_id or parsed.bitrix_record_id or "").strip()
+    if not parent_id:
+        raise ValueError(
+            "bitrix_record_id is required (webhook field or BitrixId line in chat message)"
+        )
+
+    zoho_refs = parse_zoho_crm_urls(parsed.zoho_trainer_urls)
+    if not zoho_refs:
+        raise ValueError(
+            "No Zoho trainer links found. Provide TrainerZohoLink in the chat message or "
+            "trainer_zoho_links in the webhook body."
+        )
+
+    outline_url = (parsed.outline_url or "").strip()
+    if not outline_url:
+        raise ValueError(
+            "No outline URL found. Provide Outline (Google Drive link) in the chat message, "
+            "outline in the webhook body, or configure BITRIX_OUTLINE_FIELD_API_NAME on the Bitrix record."
+        )
+
+    trainer_mod_default = (settings.zoho_trainer_module_api_name or "Trainers").strip()
+    cv_f = (settings.zoho_trainer_cv_field_api_name or "Trainer_CV").strip()
+    code_f = (settings.zoho_trainer_unique_code_field_api_name or "Trainer_Unique_Code").strip()
+
+    logger.info(
+        "GEN_BITRIX_START parent_id=%s outline_url=%s zoho_trainer_count=%s entity_type_id=%s",
+        parent_id,
+        outline_url[:120],
+        len(zoho_refs),
+        parsed.entity_type_id,
+    )
+
+    jobs_out: list[TrainerProfileJob] = []
+    temp_paths: list[Path] = []
+
+    try:
+        outline_path = download_drive_file_to_path(outline_url, _temp_cv_dir())
+        temp_paths.append(outline_path)
+        outline_text = read_text_from_path(str(outline_path))
+        outline_blob = [outline_text]
+        logger.info(
+            "GEN_BITRIX_OUTLINE_DOWNLOADED parent_id=%s char_count=%s path=%s",
+            parent_id,
+            len(outline_text),
+            outline_path,
+        )
+
+        drive_course = (
+            (payload.course_name or "").strip()
+            or (parsed.course_name or "").strip()
+            or settings.google_drive_fallback_course_name
+        )
+
+        for ref in zoho_refs:
+            t0 = time.perf_counter()
+            module = (ref.module_api_name or trainer_mod_default).strip()
+            trainer_id = ref.record_id.strip()
+            logger.info(
+                "GEN_BITRIX_TRAINER zoho_module=%s zoho_id=%s source_url=%s",
+                module,
+                trainer_id,
+                ref.source_url[:120],
+            )
+
+            trainer_row = fetch_crm_record(module, trainer_id)
+            cv_raw = trainer_row.get(cv_f)
+            cv_file_id = extract_file_id_from_zoho_field(cv_raw)
+            if not cv_file_id:
+                logger.warning(
+                    "GEN_BITRIX_SKIP_TRAINER no CV module=%s trainer_id=%s field=%s",
+                    module,
+                    trainer_id,
+                    cv_f,
+                )
+                continue
+
+            unique_code = get_scalar_field_str(trainer_row, code_f) or "Trainer"
+            heading_label = unique_code.strip()[:40]
+            company = _company_name_from_payload(payload)
+            trainer_key = trainer_unique_lookup_base(heading_label)
+            historical_outlines: list[str] = []
+            if company and trainer_key:
+                historical_outlines = _fetch_prior_outline_snapshots(
+                    db,
+                    company_name=company,
+                    trainer_key=trainer_key,
+                )
+            combined_outlines = _merge_outlines_for_generation(outline_blob, historical_outlines)
+
+            temp_cv: Path | None = None
+            try:
+                temp_cv = download_crm_file_to_path(cv_file_id, _temp_cv_dir(), attachment_meta=cv_raw)
+                cv_text = read_text_from_path(str(temp_cv))
+                cv_trimmed, outline_trimmed = truncate_inputs(cv_text, combined_outlines)
+                req_prog_hints = _payload_program_hints(payload)
+                prompt = build_prompt(
+                    cv_trimmed,
+                    outline_trimmed,
+                    trainer_heading_name=heading_label,
+                    programs_trained_hints=req_prog_hints,
+                )
+
+                job = TrainerProfileJob(
+                    zoho_record_id=parent_id,
+                    company_name=company,
+                    outline_text=_outline_snapshot(outline_trimmed),
+                    cv_path=f"zoho://record/{module}/{cv_f}/{cv_file_id}",
+                    course_outline_paths=[f"gdrive://{outline_url}"],
+                    provider=payload.provider or settings.default_provider,
+                    model_name=payload.model_name or settings.default_model,
+                    status="processing",
+                    prompt_version=payload.prompt_version,
+                    parsed_inputs={
+                        "cv_excerpt": cv_trimmed[:4000],
+                        "outline_count": len(outline_trimmed),
+                        "parent_outline_blocks": len(outline_blob),
+                        "historical_outline_blocks": len(historical_outlines),
+                        "bitrix_record_id": parent_id,
+                        "bitrix_entity_type_id": parsed.entity_type_id,
+                        "outline_source_url": outline_url,
+                        "trainer_record_id": trainer_id,
+                        "trainer_module": module,
+                        "trainer_unique_code": heading_label,
+                        "trainer_zoho_url": ref.source_url,
+                        "drive_course_name": drive_course,
+                        "programs_trained_hints": req_prog_hints or [],
+                        "source": "bitrix_webhook",
+                    },
+                )
+                db.add(job)
+                db.commit()
+                db.refresh(job)
+                logger.info(
+                    "GEN_BITRIX_JOB_CREATED job_id=%s trainer_id=%s unique_code=%s",
+                    job.id,
+                    trainer_id,
+                    heading_label,
+                )
+
+                await _complete_job_after_prompt(
+                    job,
+                    db,
+                    payload,
+                    public_base_url,
+                    prompt,
+                    t0,
+                    trainer_display_name=heading_label,
+                    programs_trained_hints=req_prog_hints,
+                )
+                db.refresh(job)
+                jobs_out.append(job)
+            finally:
+                if temp_cv and temp_cv.is_file():
+                    try:
+                        temp_cv.unlink()
+                    except OSError as exc:
+                        logger.warning("GEN_TEMP_REMOVE_FAILED path=%s error=%s", temp_cv, exc)
+
+        if not jobs_out:
+            logger.warning(
+                "GEN_BITRIX_NO_JOBS parent_id=%s reason=no_trainer_cv_or_all_skipped",
+                parent_id,
+            )
+        return jobs_out
+    except GoogleDriveDownloadError as exc:
+        raise ValueError(f"Failed to download outline from Google Drive: {exc}") from exc
+    finally:
+        for p in temp_paths:
+            if p.is_file():
+                try:
+                    p.unlink()
+                except OSError as exc:
+                    logger.warning("GEN_TEMP_REMOVE_FAILED path=%s error=%s", p, exc)

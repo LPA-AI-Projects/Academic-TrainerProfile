@@ -240,3 +240,53 @@ class DriveUploadResponse(BaseModel):
     course_name: str
     unique_code: str | None = None
     pdf_link: str
+
+
+class BitrixGenerateProfileRequest(BaseModel):
+    """Body for ``POST /api/v1/bitrix/profiles/generate`` (JSON or form fields)."""
+
+    # Bitrix parent / trainer-module record id (stored as zoho_record_id on jobs for grouping).
+    bitrix_record_id: str = Field(min_length=1, max_length=128)
+    entity_type_id: int | None = None
+    # Chat message body (parsed for Trainerprofile / Outline / TrainerZohoLink lines).
+    message: str | None = None
+    # Explicit overrides (take precedence over parsed chat lines).
+    outline: str | None = Field(default=None, max_length=2048)
+    trainer_zoho_links: str | None = Field(
+        default=None,
+        max_length=8000,
+        description="Comma-separated Zoho CRM trainer record URLs.",
+    )
+    course_name: str | None = Field(default=None, max_length=200)
+    company_name: str | None = Field(default=None, max_length=200)
+    programs_trained: list[str] = Field(default_factory=list)
+    provider: Literal["openai", "anthropic"] | None = None
+    model_name: str | None = None
+    prompt_version: str = "v1"
+
+    @field_validator("bitrix_record_id", mode="before")
+    @classmethod
+    def strip_bitrix_id(cls, value: object) -> str:
+        if value is None:
+            raise ValueError("bitrix_record_id is required")
+        s = str(value).strip()
+        if not s:
+            raise ValueError("bitrix_record_id is required")
+        return s
+
+    @field_validator("message", "outline", "trainer_zoho_links", "course_name", "company_name", mode="before")
+    @classmethod
+    def empty_optional_bitrix_strings(cls, value: object) -> str | None:
+        if value is None:
+            return None
+        if isinstance(value, str):
+            s = value.strip()
+            return s or None
+        return str(value).strip() or None
+
+    @field_validator("programs_trained")
+    @classmethod
+    def validate_bitrix_programs(cls, value: list[str]) -> list[str]:
+        out = [str(v).replace("\n", " ").strip() for v in value if v and str(v).strip()]
+        return out[:50]
+

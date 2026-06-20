@@ -233,6 +233,29 @@ class Settings(BaseSettings):
     google_drive_auto_upload: bool = True
     google_drive_fallback_course_name: str = "Course"
 
+    # Bitrix24 inbound webhook — Railway calls Bitrix REST (read task chat, post replies).
+    # Example: https://learnerspoint.bitrix24.com/rest/161836/m5u7wmgnjide8ss0
+    bitrix_rest_webhook_url: str | None = None
+    # Outbound webhook application token (Bitrix → your API on ONTASKCOMMENTADD).
+    bitrix_application_token: str | None = None
+    # Default CRM entityTypeId when webhook does not send entity_type_id (SPA / custom module).
+    bitrix_entity_type_id: int | None = None
+    # Bitrix CRM field API names on the trainer/parent record (useOriginalUfNames=Y).
+    bitrix_outline_field_api_name: str | None = None
+    bitrix_zoho_links_field_api_name: str | None = None
+    bitrix_course_name_field_api_name: str | None = None
+
+    @field_validator("bitrix_entity_type_id", mode="before")
+    @classmethod
+    def coerce_bitrix_entity_type_id(cls, v: object) -> int | None:
+        if v is None or v == "":
+            return None
+        if isinstance(v, int):
+            return v
+        if isinstance(v, str) and v.strip().isdigit():
+            return int(v.strip())
+        return None
+
     @field_validator(
         "zoho_module_api_name",
         "zoho_trainer_module_api_name",

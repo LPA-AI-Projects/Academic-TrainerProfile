@@ -33,6 +33,7 @@ from .utils.logger import get_logger
 from .db_migrations import apply_light_migrations
 from .models import TrainerProfileJob
 from .schemas import (
+    BitrixGenerateProfileRequest,
     DriveUploadRequest,
     DriveUploadResponse,
     GeneratedProfilePayload,
@@ -44,10 +45,19 @@ from .schemas import (
     RefineProfilePathBody,
     RefineProfileRequest,
 )
+from .services.bitrix_outbound import (
+    OutboundTaskComment,
+    flatten_bitrix_form,
+    parse_outbound_event,
+    resolve_outbound_task_comment,
+    route_task_comment,
+)
+from .services.bitrix_service import merge_webhook_payload
 from .services.google_drive_service import GoogleDriveUploadError, upload_trainer_profile_pdf
 from .services.job_pdf import ensure_job_pdf_on_disk
 from .services.profile_service import (
     generate_and_store_profile,
+    generate_from_bitrix_chat,
     maybe_google_drive_upload_after_pdf,
     maybe_zoho_attach_trainer_pdf_link,
     normalize_profile_payload,
@@ -635,6 +645,405 @@ async def generate_profile(request: Request, db: Session = Depends(get_db)):
         _request_id(request),
     )
     return _build_generate_profile_response(request, jobs, zoho_record_id=zid)
+
+
+async def _parse_bitrix_webhook_body(request: Request) -> BitrixGenerateProfileRequest:
+    """Accept JSON or form-urlencoded Bitrix automation / chat webhook payloads."""
+    ctype = (request.headers.get("content-type") or "").lower()
+    raw: dict[str, object] = {}
+
+    if "application/json" in ctype:
+        try:
+            body = await request.json()
+        except Exception:
+            body = {}
+        if isinstance(body, dict):
+            raw = body
+            # Bitrix bot / Open Lines may nest message text
+            for key in ("data", "DATA", "params", "PARAMS"):
+                nested = raw.get(key)
+                if isinstance(nested, dict):
+                    for mk in ("MESSAGE", "message", "TEXT", "text", "BODY", "body"):
+                        if mk in nested and mk not in raw:
+                            raw[mk] = nested[mk]
+    elif "application/x-www-form-urlencoded" in ctype or "multipart/form-data" in ctype:
+        form = await request.form()
+        raw = {str(k): v for k, v in form.items()}
+    else:
+        try:
+            body = await request.json()
+            if isinstance(body, dict):
+                raw = body
+        except Exception:
+            raw = {}
+
+    def _first_str(*keys: str) -> str | None:
+        for k in keys:
+            v = raw.get(k)
+            if v is None:
+                continue
+            s = str(v).strip()
+            if s:
+                return s
+        return None
+
+    bitrix_id = _first_str(
+        "bitrix_record_id",
+        "record_id",
+        "id",
+        "ID",
+        "document_id",
+        "DOCUMENT_ID",
+        "entity_id",
+        "ENTITY_ID",
+    )
+    if not bitrix_id:
+        raise HTTPException(
+            status_code=422,
+            detail="Missing bitrix_record_id (aliases: record_id, id, document_id, entity_id).",
+        )
+
+    message = _first_str("message", "MESSAGE", "text", "TEXT", "chat_message", "CHAT_MESSAGE")
+    outline = _first_str("outline", "Outline", "outline_url", "OUTLINE")
+    zoho_links = _first_str(
+        "trainer_zoho_links",
+        "TrainerZohoLink",
+        "TrainerZohoLinks",
+        "trainer_zoho_link",
+        "zoho_trainer_links",
+    )
+    entity_type_raw = _first_str("entity_type_id", "entityTypeId", "ENTITY_TYPE_ID")
+    entity_type_id: int | None = None
+    if entity_type_raw and entity_type_raw.isdigit():
+        entity_type_id = int(entity_type_raw)
+    elif settings.bitrix_entity_type_id:
+        entity_type_id = int(settings.bitrix_entity_type_id)
+
+    programs_raw = _first_str("programs_trained", "programs")
+    programs_list: list[str] = _parse_outline_paths_form(programs_raw)
+
+    prov_in = (_first_str("provider") or "").lower()
+    prov: Literal["openai", "anthropic"] | None = None
+    if prov_in == "openai":
+        prov = "openai"
+    elif prov_in == "anthropic":
+        prov = "anthropic"
+
+    try:
+        return BitrixGenerateProfileRequest(
+            bitrix_record_id=bitrix_id,
+            entity_type_id=entity_type_id,
+            message=message,
+            outline=outline,
+            trainer_zoho_links=zoho_links,
+            course_name=_first_str("course_name", "CourseName", "product"),
+            company_name=_first_str("company_name", "CompanyName"),
+            programs_trained=programs_list,
+            provider=prov,
+            model_name=_first_str("model_name", "model"),
+            prompt_version=(_first_str("prompt_version") or "v1"),
+        )
+    except ValidationError as exc:
+        raise HTTPException(status_code=422, detail=validation_errors_for_response(exc)) from exc
+
+
+async def _load_bitrix_outbound_task_comment(request: Request) -> OutboundTaskComment | dict[str, str]:
+    """Shared ONTASKCOMMENTADD parsing for generate/refine outbound webhooks."""
+    try:
+        form = await request.form()
+    except ClientDisconnect:
+        raise HTTPException(status_code=400, detail="Client disconnected before request body was received.")
+
+    flat = flatten_bitrix_form(dict(form))
+    try:
+        resolved = resolve_outbound_task_comment(flat)
+    except HTTPException:
+        raise
+    except Exception as exc:
+        log_operation_error(
+            logger,
+            "API_BITRIX_COMMENT_FETCH_FAILED",
+            exc,
+            request_id=_request_id(request),
+        )
+        raise HTTPException(
+            status_code=502,
+            detail="Could not load task comment from Bitrix. Check BITRIX_REST_WEBHOOK_URL and im/tasks scopes.",
+        ) from exc
+
+    if resolved is None:
+        outbound = parse_outbound_event(flat)
+        event_name = outbound.event if outbound else "(missing)"
+        logger.info("API_BITRIX_OUTBOUND_IGNORED event=%s", event_name)
+        return {"status": "ignored", "event": event_name}
+
+    logger.info(
+        "API_BITRIX_OUTBOUND_ACCEPTED event=%s task_id=%s message_id=%s request_id=%s",
+        resolved.event,
+        resolved.task_id,
+        resolved.message_id,
+        _request_id(request),
+    )
+    return resolved
+
+
+@app.post(
+    "/api/v1/bitrix/trainer-profile/generate",
+    summary="Bitrix outbound webhook — ONTASKCOMMENTADD → generate trainer profiles",
+)
+async def bitrix_outbound_generate(request: Request, db: Session = Depends(get_db)):
+    """
+    Bitrix24 **outbound** webhook for **generation only**.
+
+    Configure a separate outbound webhook in Bitrix24:
+      Handler URL: ``https://YOUR-APP/api/v1/bitrix/trainer-profile/generate``
+      Event: **Task comment added (ONTASKCOMMENTADD)**
+      Application token → ``BITRIX_APPLICATION_TOKEN``
+
+    Post in task chat::
+
+        /trainer-profile
+
+        outline:
+        https://drive.google.com/file/d/...
+
+        trainers:
+        https://crm.zoho.com/crm/.../CustomModule1/123
+    """
+    loaded = await _load_bitrix_outbound_task_comment(request)
+    if isinstance(loaded, dict):
+        return loaded
+
+    task_id = loaded.task_id
+    comment = loaded.comment
+    if not comment.strip():
+        return {"status": "ignored", "message": "Empty task comment.", "task_id": task_id}
+
+    routed = route_task_comment(comment)
+    logger.info("API_BITRIX_GENERATE_ROUTE task_id=%s action=%s", task_id, routed.action)
+
+    if routed.action != "generate":
+        return {
+            "status": "ignored",
+            "message": "Comment is not a /trainer-profile generate command (use /trainer-profile/refine for refine).",
+            "task_id": task_id,
+        }
+
+    merged = merge_webhook_payload(
+        message=comment,
+        outline=None,
+        trainer_zoho_links=None,
+        bitrix_record_id=task_id,
+        entity_type_id=None,
+        course_name=None,
+    )
+    logger.info(
+        "API_BITRIX_GENERATE_FROM_COMMENT task_id=%s outline=%s zoho_links=%s",
+        task_id,
+        bool(merged.outline_url),
+        len(merged.zoho_trainer_urls),
+    )
+
+    try:
+        gen_payload = GenerateProfileRequest(zoho_record_id=task_id, prompt_version="v1")
+        jobs = await generate_from_bitrix_chat(
+            merged,
+            gen_payload,
+            db,
+            public_base_url=_public_base_url(request),
+        )
+    except HTTPException:
+        raise
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    except Exception as exc:
+        log_operation_error(
+            logger,
+            "API_BITRIX_GENERATE_FAILED",
+            exc,
+            request_id=_request_id(request),
+            bitrix_record_id=task_id,
+        )
+        raise HTTPException(
+            status_code=500,
+            detail=exception_public_detail(exc, app_env=settings.app_env),
+        ) from exc
+
+    return _build_generate_profile_response(
+        request,
+        jobs,
+        zoho_record_id=task_id,
+        empty_message="No trainer profiles were generated (no Zoho trainer had a CV file on record).",
+    )
+
+
+@app.post(
+    "/api/v1/bitrix/trainer-profile/refine",
+    summary="Bitrix outbound webhook — ONTASKCOMMENTADD → refine trainer profiles",
+)
+async def bitrix_outbound_refine(request: Request, db: Session = Depends(get_db)):
+    """
+    Bitrix24 **outbound** webhook for **refine only**.
+
+    Configure a separate outbound webhook in Bitrix24:
+      Handler URL: ``https://YOUR-APP/api/v1/bitrix/trainer-profile/refine``
+      Event: **Task comment added (ONTASKCOMMENTADD)**
+      Application token → ``BITRIX_APPLICATION_TOKEN``
+
+    Post in task chat::
+
+        trainer_profile
+
+        unique_code: TR2001
+        refine:
+        Make the executive summary shorter and emphasize leadership experience.
+    """
+    loaded = await _load_bitrix_outbound_task_comment(request)
+    if isinstance(loaded, dict):
+        return loaded
+
+    task_id = loaded.task_id
+    comment = loaded.comment
+    if not comment.strip():
+        return {"status": "ignored", "message": "Empty task comment.", "task_id": task_id}
+
+    routed = route_task_comment(comment)
+    logger.info("API_BITRIX_REFINE_ROUTE task_id=%s action=%s", task_id, routed.action)
+
+    if routed.action != "refine" or not routed.refine:
+        return {
+            "status": "ignored",
+            "message": (
+                "Comment is not a trainer_profile refine command "
+                "(use /trainer-profile/generate for new profiles)."
+            ),
+            "task_id": task_id,
+        }
+
+    refine_payload = RefineProfileRequest(
+        zoho_record_id=task_id,
+        unique_code=routed.refine.unique_code,
+        refine=routed.refine.refine_instruction,
+    )
+    try:
+        return await _refine_profile_impl(refine_payload, request, db)
+    except HTTPException as exc:
+        logger.warning(
+            "API_BITRIX_REFINE_FAILED task_id=%s status=%s detail=%s",
+            task_id,
+            exc.status_code,
+            exc.detail,
+        )
+        raise
+
+
+@app.post(
+    "/api/v1/bitrix/trainer-profile",
+    response_model=GenerateProfileResponse,
+    dependencies=[optional_api_key],
+    summary="Direct generate (JSON/form) — not the Bitrix outbound webhook",
+)
+@app.post(
+    "/api/v1/bitrix/profiles/generate",
+    response_model=GenerateProfileResponse,
+    dependencies=[optional_api_key],
+    include_in_schema=False,
+)
+async def bitrix_generate_profile_direct(request: Request, db: Session = Depends(get_db)):
+    """
+    Bitrix24 automation webhook.
+
+    Chat message format::
+
+        Trainerprofile :
+        Outline : "https://drive.google.com/file/d/..."
+        TrainerZohoLink : "https://crm.zoho.com/crm/.../CustomModule1/123","https://crm.zoho.com/.../456"
+
+    Webhook fields (JSON or form): ``bitrix_record_id``, optional ``message``, ``outline``,
+    ``trainer_zoho_links``, ``entity_type_id``, ``course_name``.
+
+    Outline is downloaded from Google Drive; trainer CVs are fetched from Zoho CRM using the links.
+    """
+    body = await _parse_bitrix_webhook_body(request)
+    rid = body.bitrix_record_id
+
+    client_ip = (
+        request.headers.get("x-real-ip")
+        or (request.headers.get("x-forwarded-for") or "").split(",")[0].strip()
+        or (request.client.host if request.client else "")
+    )
+    logger.info(
+        "API_BITRIX_WEBHOOK_ACCEPTED bitrix_record_id=%s entity_type_id=%s client_ip=%s message_chars=%s",
+        rid,
+        body.entity_type_id,
+        client_ip,
+        len(body.message or ""),
+    )
+
+    merged = merge_webhook_payload(
+        message=body.message,
+        outline=body.outline,
+        trainer_zoho_links=body.trainer_zoho_links,
+        bitrix_record_id=rid,
+        entity_type_id=body.entity_type_id,
+        course_name=body.course_name,
+    )
+    logger.info(
+        "API_BITRIX_PARSED bitrix_record_id=%s outline=%s zoho_link_count=%s",
+        rid,
+        bool(merged.outline_url),
+        len(merged.zoho_trainer_urls),
+    )
+
+    try:
+        gen_payload = GenerateProfileRequest(
+            zoho_record_id=rid,
+            course_name=body.course_name,
+            company_name=body.company_name,
+            programs_trained=body.programs_trained,
+            provider=body.provider,
+            model_name=body.model_name,
+            prompt_version=body.prompt_version,
+        )
+    except ValidationError as exc:
+        raise HTTPException(status_code=422, detail=validation_errors_for_response(exc)) from exc
+
+    try:
+        jobs = await generate_from_bitrix_chat(
+            merged,
+            gen_payload,
+            db,
+            public_base_url=_public_base_url(request),
+        )
+    except HTTPException:
+        raise
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    except Exception as exc:
+        log_operation_error(
+            logger,
+            "API_BITRIX_GENERATE_FAILED",
+            exc,
+            request_id=_request_id(request),
+            bitrix_record_id=rid,
+        )
+        raise HTTPException(
+            status_code=500,
+            detail=exception_public_detail(exc, app_env=settings.app_env),
+        ) from exc
+
+    logger.info(
+        "API_BITRIX_RESPONSE bitrix_record_id=%s job_count=%s request_id=%s",
+        rid,
+        len(jobs),
+        _request_id(request),
+    )
+    return _build_generate_profile_response(
+        request,
+        jobs,
+        zoho_record_id=rid,
+        empty_message="No trainer profiles were generated (no Zoho trainer had a CV file on record).",
+    )
 
 
 async def _parse_refine_payload_from_request(request: Request) -> RefineProfileRequest:
