@@ -789,26 +789,32 @@ async def _load_bitrix_outbound_task_comment(request: Request) -> OutboundTaskCo
 
 @app.post(
     "/api/v1/bitrix/trainer-profile/generate",
-    summary="Bitrix outbound webhook — ONTASKCOMMENTADD → generate trainer profiles",
+    summary="Bitrix outbound webhook — ONTASKCOMMENTADD (generate or refine from task chat)",
 )
-async def bitrix_outbound_generate(request: Request, db: Session = Depends(get_db)):
+async def bitrix_outbound_webhook(request: Request, db: Session = Depends(get_db)):
     """
-    Bitrix24 **outbound** webhook for **generation only**.
+    Bitrix24 **outbound** webhook — single endpoint for trainer profile **generate** and **refine**.
 
-    Configure a separate outbound webhook in Bitrix24:
+    Configure in Bitrix24 → Outbound webhook:
       Handler URL: ``https://YOUR-APP/api/v1/bitrix/trainer-profile/generate``
       Event: **Task comment added (ONTASKCOMMENTADD)**
       Application token → ``BITRIX_APPLICATION_TOKEN``
 
-    Post in task chat::
+    **Generate** — post in task chat::
 
-        /trainer-profile
+        trainer_profile
 
         outline:
         https://drive.google.com/file/d/...
 
         trainers:
         https://crm.zoho.com/crm/.../CustomModule1/123
+
+    **Refine** — post in task chat::
+
+        unique_code: TR2001
+        refine:
+        Make the executive summary shorter and emphasize leadership experience.
     """
     loaded = await _load_bitrix_outbound_task_comment(request)
     if isinstance(loaded, dict):
@@ -820,12 +826,32 @@ async def bitrix_outbound_generate(request: Request, db: Session = Depends(get_d
         return {"status": "ignored", "message": "Empty task comment.", "task_id": task_id}
 
     routed = route_task_comment(comment)
-    logger.info("API_BITRIX_GENERATE_ROUTE task_id=%s action=%s", task_id, routed.action)
+    logger.info("API_BITRIX_COMMENT_ROUTED task_id=%s action=%s", task_id, routed.action)
+
+    if routed.action == "refine" and routed.refine:
+        refine_payload = RefineProfileRequest(
+            zoho_record_id=task_id,
+            unique_code=routed.refine.unique_code,
+            refine=routed.refine.refine_instruction,
+        )
+        try:
+            return await _refine_profile_impl(refine_payload, request, db)
+        except HTTPException as exc:
+            logger.warning(
+                "API_BITRIX_REFINE_FAILED task_id=%s status=%s detail=%s",
+                task_id,
+                exc.status_code,
+                exc.detail,
+            )
+            raise
 
     if routed.action != "generate":
         return {
             "status": "ignored",
-            "message": "Comment is not a /trainer-profile generate command (use /trainer-profile/refine for refine).",
+            "message": (
+                "Comment did not match trainer profile generate (trainer_profile + outline + trainers) "
+                "or refine (unique_code + refine)."
+            ),
             "task_id": task_id,
         }
 
@@ -875,66 +901,6 @@ async def bitrix_outbound_generate(request: Request, db: Session = Depends(get_d
         zoho_record_id=task_id,
         empty_message="No trainer profiles were generated (no Zoho trainer had a CV file on record).",
     )
-
-
-@app.post(
-    "/api/v1/bitrix/trainer-profile/refine",
-    summary="Bitrix outbound webhook — ONTASKCOMMENTADD → refine trainer profiles",
-)
-async def bitrix_outbound_refine(request: Request, db: Session = Depends(get_db)):
-    """
-    Bitrix24 **outbound** webhook for **refine only**.
-
-    Configure a separate outbound webhook in Bitrix24:
-      Handler URL: ``https://YOUR-APP/api/v1/bitrix/trainer-profile/refine``
-      Event: **Task comment added (ONTASKCOMMENTADD)**
-      Application token → ``BITRIX_APPLICATION_TOKEN``
-
-    Post in task chat::
-
-        trainer_profile
-
-        unique_code: TR2001
-        refine:
-        Make the executive summary shorter and emphasize leadership experience.
-    """
-    loaded = await _load_bitrix_outbound_task_comment(request)
-    if isinstance(loaded, dict):
-        return loaded
-
-    task_id = loaded.task_id
-    comment = loaded.comment
-    if not comment.strip():
-        return {"status": "ignored", "message": "Empty task comment.", "task_id": task_id}
-
-    routed = route_task_comment(comment)
-    logger.info("API_BITRIX_REFINE_ROUTE task_id=%s action=%s", task_id, routed.action)
-
-    if routed.action != "refine" or not routed.refine:
-        return {
-            "status": "ignored",
-            "message": (
-                "Comment is not a trainer_profile refine command "
-                "(use /trainer-profile/generate for new profiles)."
-            ),
-            "task_id": task_id,
-        }
-
-    refine_payload = RefineProfileRequest(
-        zoho_record_id=task_id,
-        unique_code=routed.refine.unique_code,
-        refine=routed.refine.refine_instruction,
-    )
-    try:
-        return await _refine_profile_impl(refine_payload, request, db)
-    except HTTPException as exc:
-        logger.warning(
-            "API_BITRIX_REFINE_FAILED task_id=%s status=%s detail=%s",
-            task_id,
-            exc.status_code,
-            exc.detail,
-        )
-        raise
 
 
 @app.post(

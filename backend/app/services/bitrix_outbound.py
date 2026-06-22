@@ -1,13 +1,13 @@
 """
 Bitrix24 **outbound** webhook handling (Bitrix pushes events to our API).
 
-Configure in Bitrix24 → Developer resources → Outbound webhook (create **two** webhooks, same event):
+Configure in Bitrix24 → Developer resources → Outbound webhook (**one** webhook):
 
-  **Generate** — Handler URL: ``.../api/v1/bitrix/trainer-profile/generate``
-  **Refine**    — Handler URL: ``.../api/v1/bitrix/trainer-profile/refine``
-
-  Event (both): ONTASKCOMMENTADD (Task comment added)
+  Handler URL: ``.../api/v1/bitrix/trainer-profile/generate``
+  Event: ONTASKCOMMENTADD (Task comment added)
   Application token → BITRIX_APPLICATION_TOKEN
+
+The backend routes generate vs refine from the comment text.
 
 Uses BITRIX_REST_WEBHOOK_URL (inbound) only to read task chat comments via REST.
 """
@@ -25,13 +25,6 @@ from ..utils.logger import get_logger
 from .bitrix_service import bitrix_call
 
 logger = get_logger(__name__)
-
-# Refine must be explicitly scoped to trainer profiles (avoids course-outline "Refine:" collisions).
-_TRAINER_PROFILE_REFINE_MARKERS = (
-    "/trainer-profile-refine",
-    "trainer_profile",
-    "trainer profile refine",
-)
 
 
 @dataclass(frozen=True)
@@ -146,37 +139,70 @@ def is_task_comment_event(event: str) -> bool:
     return e in ("ONTASKCOMMENTADD", "ONTASKCOMMENTUPDATE")
 
 
-def is_trainer_profile_refine_command(comment: str | None) -> bool:
-    """
-    True when comment is a **trainer profile refine** command.
+def _has_outline_block(text: str) -> bool:
+    return bool(re.search(r"(?im)^\s*outline\s*:", text))
 
-    Requires a ``trainer_profile`` scope marker **and** a ``refine:`` block — plain ``Refine:`` alone
-    is ignored so course-outline refine comments on the same task do not collide.
+
+def _has_trainers_block(text: str) -> bool:
+    return bool(re.search(r"(?im)^\s*trainers?\s*:", text))
+
+
+def _has_trainer_profile_header(text: str) -> bool:
+    if re.search(r"(?im)^\s*trainer_profile\s*$", text):
+        return True
+    if re.search(r"(?im)^\s*/trainer-profile\s*$", text):
+        return True
+    low = text.lower()
+    return "trainerprofile" in low.replace(" ", "") and "trainer_profile" not in low
+
+
+def is_trainer_profile_generate_command(comment: str | None) -> bool:
+    """
+    Generate when comment includes ``outline:`` + ``trainers:`` (optionally prefixed with ``trainer_profile``).
     """
     text = (comment or "").strip()
     if not text:
         return False
     low = text.lower()
-    has_marker = any(m in low for m in _TRAINER_PROFILE_REFINE_MARKERS)
-    if re.search(r"(?im)^\s*trainer_profile\s*$", text):
-        has_marker = True
-    if re.search(r"(?im)^\s*trainer_profile\s+refine\s*$", text):
-        has_marker = True
-    has_refine_block = bool(re.search(r"(?im)^\s*refine\s*:", text))
-    return has_marker and has_refine_block
+    has_outline = _has_outline_block(text)
+    has_trainers = _has_trainers_block(text)
+    has_zoho = "zoho.com/crm" in low
+    has_drive = "drive.google.com" in low or "docs.google.com" in low
+
+    if has_outline and (has_trainers or has_zoho):
+        return True
+    if _has_trainer_profile_header(text) and has_outline and (has_trainers or has_zoho or has_drive):
+        return True
+    if "/trainer-profile" in low and has_drive and has_zoho:
+        return True
+    return False
+
+
+def is_trainer_profile_refine_command(comment: str | None) -> bool:
+    """
+    Refine when comment has ``unique_code:`` + ``refine:`` and is **not** a generate command.
+
+    Plain ``Refine:`` without ``unique_code:`` is ignored (avoids course-outline collisions).
+    """
+    text = (comment or "").strip()
+    if not text:
+        return False
+    if is_trainer_profile_generate_command(text):
+        return False
+    if not re.search(r"(?im)^\s*refine\s*:", text):
+        return False
+    if not re.search(r"(?im)^\s*unique_code\s*:", text):
+        return False
+    return True
 
 
 def parse_trainer_profile_refine_command(comment: str | None) -> ParsedTrainerProfileRefine | None:
     """
-    Parse trainer-profile refine comments, e.g.::
-
-        trainer_profile
+    Parse refine comments, e.g.::
 
         unique_code: TR2001
         refine:
-        Make the executive summary shorter and add two more key skills.
-
-    ``refine:`` instruction must be at least 10 characters.
+        Make the executive summary shorter and emphasize leadership experience.
     """
     if not is_trainer_profile_refine_command(comment):
         return None
@@ -203,21 +229,14 @@ def parse_trainer_profile_refine_command(comment: str | None) -> ParsedTrainerPr
     return ParsedTrainerProfileRefine(unique_code=unique_code, refine_instruction=instruction)
 
 
-def is_trainer_profile_generate_command(comment: str | None) -> bool:
-    """True for generate commands — never overlaps with trainer_profile refine."""
-    if is_trainer_profile_refine_command(comment):
-        return False
-    text = (comment or "").strip()
-    if not text:
-        return False
-    low = text.lower()
-    if "/trainer-profile" in low and "/trainer-profile-refine" not in low:
-        return True
-    if "trainerprofile" in low.replace(" ", "") and "trainer_profile" not in low:
-        return True
-    has_drive = "drive.google.com" in low or "docs.google.com" in low
-    has_zoho = "zoho.com/crm" in low
-    return has_drive and has_zoho
+def route_task_comment(comment: str | None) -> TaskCommentRoute:
+    """Classify one task chat comment — generate vs refine vs ignore."""
+    if is_trainer_profile_generate_command(comment):
+        return TaskCommentRoute(action="generate")
+    refined = parse_trainer_profile_refine_command(comment)
+    if refined:
+        return TaskCommentRoute(action="refine", refine=refined)
+    return TaskCommentRoute(action="ignore")
 
 
 def resolve_outbound_task_comment(flat: dict[str, str]) -> OutboundTaskComment | None:
@@ -247,16 +266,6 @@ def resolve_outbound_task_comment(flat: dict[str, str]) -> OutboundTaskComment |
         message_id=message_id,
         comment=comment,
     )
-
-
-def route_task_comment(comment: str | None) -> TaskCommentRoute:
-    """Classify one task chat comment for the single ONTASKCOMMENTADD webhook."""
-    refined = parse_trainer_profile_refine_command(comment)
-    if refined:
-        return TaskCommentRoute(action="refine", refine=refined)
-    if is_trainer_profile_generate_command(comment):
-        return TaskCommentRoute(action="generate")
-    return TaskCommentRoute(action="ignore")
 
 
 # Deprecated aliases — kept for imports/tests

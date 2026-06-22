@@ -281,7 +281,7 @@ def parse_trainerprofile_chat_message(text: str) -> ParsedTrainerProfileChat:
     """
     Parse chat / automation text such as::
 
-        /trainer-profile
+        trainer_profile
 
         outline:
         https://drive.google.com/file/d/abc/view
