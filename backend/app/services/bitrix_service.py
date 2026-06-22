@@ -21,6 +21,48 @@ from ..utils.logger import get_logger
 logger = get_logger(__name__)
 
 _URL_RE = re.compile(r"https?://[^\s\"'<>]+", re.IGNORECASE)
+_BITRIX_URL_TAG = re.compile(r"\[url(?:=([^\]]+))?\](.*?)\[/url\]", re.IGNORECASE | re.DOTALL)
+
+
+def normalize_bitrix_chat_text(text: str) -> str:
+    """Unpack Bitrix BBCode ``[URL]...[/URL]`` links so URL parsers see plain https URLs."""
+    if not text:
+        return ""
+
+    def _repl(match: re.Match[str]) -> str:
+        href = (match.group(1) or match.group(2) or "").strip()
+        return f"\n{href}\n" if href else " "
+
+    out = _BITRIX_URL_TAG.sub(_repl, text)
+    out = re.sub(r"\[/?[^\]]+\]", " ", out)
+    return out
+
+
+def _sanitize_extracted_url(url: str) -> str:
+    """Strip BBCode residue and glued duplicate URLs from a single extracted link."""
+    u = (url or "").strip().rstrip('",\'')
+    for sep in ("]", "[/url", "%5d", "%5b", " "):
+        low = u.lower()
+        idx = low.find(sep)
+        if idx > 0:
+            u = u[:idx]
+    m = re.match(r"(https?://[^\s\"'<>\[\]]+)", u, re.IGNORECASE)
+    if m:
+        u = m.group(1)
+    return u.rstrip("/.,;)]")
+
+
+def _clean_quoted_urls(blob: str) -> list[str]:
+    blob = normalize_bitrix_chat_text(blob or "")
+    urls = _URL_RE.findall(blob)
+    cleaned: list[str] = []
+    for u in urls:
+        u = _sanitize_extracted_url(u)
+        if not u or "your_file" in u.lower():
+            continue
+        if u not in cleaned:
+            cleaned.append(u)
+    return cleaned
 
 
 @dataclass(frozen=True)
@@ -228,7 +270,7 @@ def parse_zoho_crm_url(url: str, *, default_module: str | None = None) -> ZohoCr
     Parse Zoho CRM record URLs such as:
       https://crm.zoho.com/crm/org901534269/tab/CustomModule1/7026232000010532226
     """
-    raw = (url or "").strip().rstrip("/")
+    raw = _sanitize_extracted_url((url or "").strip())
     if not raw or "zoho.com/crm" not in raw.lower():
         return None
     parsed = urlparse(raw)
@@ -242,10 +284,14 @@ def parse_zoho_crm_url(url: str, *, default_module: str | None = None) -> ZohoCr
             break
     if not record_id:
         tail = parts[-1] if parts else ""
-        if tail.isdigit():
-            record_id = tail
-            if len(parts) >= 2 and parts[-2].lower() not in ("crm", "org901534269"):
+        id_m = re.match(r"^(\d+)", tail)
+        if id_m:
+            record_id = id_m.group(1)
+            if len(parts) >= 2 and parts[-2].lower() not in ("crm",) and not parts[-2].startswith("org"):
                 module = parts[-2]
+    elif record_id:
+        id_m = re.match(r"^(\d+)", record_id)
+        record_id = id_m.group(1) if id_m else record_id.strip("[]")
     if not record_id:
         return None
     mod = (module or default_module or get_settings().zoho_trainer_module_api_name or "Trainers").strip()
@@ -265,16 +311,6 @@ def parse_zoho_crm_urls(urls: list[str], *, default_module: str | None = None) -
         seen.add(key)
         out.append(ref)
     return out
-
-
-def _clean_quoted_urls(blob: str) -> list[str]:
-    urls = _URL_RE.findall(blob or "")
-    cleaned: list[str] = []
-    for u in urls:
-        u = u.rstrip('",\'')
-        if u not in cleaned:
-            cleaned.append(u)
-    return cleaned
 
 
 def parse_trainerprofile_chat_message(text: str) -> ParsedTrainerProfileChat:
@@ -297,6 +333,7 @@ def parse_trainerprofile_chat_message(text: str) -> ParsedTrainerProfileChat:
         TrainerZohoLink : "https://crm.zoho.com/.../123","https://crm.zoho.com/.../456"
     """
     raw = (text or "").strip()
+    raw = normalize_bitrix_chat_text(raw)
     if not raw:
         return ParsedTrainerProfileChat(outline_url=None, zoho_trainer_urls=[])
 
