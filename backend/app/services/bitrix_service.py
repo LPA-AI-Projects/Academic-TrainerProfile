@@ -265,10 +265,30 @@ def download_bitrix_file_to_path(download_url: str, dest_dir: Path) -> Path:
     return out
 
 
+def _zoho_url_segment_is_api_module(segment: str) -> bool:
+    """
+    Zoho CRM browser URLs use ``/tab/CustomModule1/{id}`` — ``CustomModule1`` is not the REST API name.
+    """
+    s = (segment or "").strip()
+    if not s:
+        return False
+    if re.match(r"^CustomModule\d+$", s, re.IGNORECASE):
+        return False
+    if re.match(r"^org\d+$", s, re.IGNORECASE):
+        return False
+    if s.lower() in ("crm", "tab", "entity", "custom", "module", "org"):
+        return False
+    return True
+
+
 def parse_zoho_crm_url(url: str, *, default_module: str | None = None) -> ZohoCrmLinkRef | None:
     """
     Parse Zoho CRM record URLs such as:
       https://crm.zoho.com/crm/org901534269/tab/CustomModule1/7026232000010532226
+
+    Extracts the numeric **record id** from the URL. The module API name comes from
+    ``ZOHO_TRAINER_MODULE_API_NAME`` (default ``Trainers``) when the URL only contains
+    a UI tab name like ``CustomModule1``.
     """
     raw = _sanitize_extracted_url((url or "").strip())
     if not raw or "zoho.com/crm" not in raw.lower():
@@ -276,10 +296,10 @@ def parse_zoho_crm_url(url: str, *, default_module: str | None = None) -> ZohoCr
     parsed = urlparse(raw)
     parts = [p for p in parsed.path.split("/") if p]
     record_id: str | None = None
-    module: str | None = None
+    url_module: str | None = None
     for i, part in enumerate(parts):
         if part.lower() in ("tab", "entity", "custom", "module") and i + 2 < len(parts):
-            module = parts[i + 1]
+            url_module = parts[i + 1]
             record_id = parts[i + 2]
             break
     if not record_id:
@@ -287,14 +307,32 @@ def parse_zoho_crm_url(url: str, *, default_module: str | None = None) -> ZohoCr
         id_m = re.match(r"^(\d+)", tail)
         if id_m:
             record_id = id_m.group(1)
-            if len(parts) >= 2 and parts[-2].lower() not in ("crm",) and not parts[-2].startswith("org"):
-                module = parts[-2]
+            if len(parts) >= 2:
+                url_module = parts[-2]
     elif record_id:
         id_m = re.match(r"^(\d+)", record_id)
         record_id = id_m.group(1) if id_m else record_id.strip("[]")
     if not record_id:
         return None
-    mod = (module or default_module or get_settings().zoho_trainer_module_api_name or "Trainers").strip()
+
+    settings = get_settings()
+    fallback_mod = (
+        (default_module or "").strip()
+        or (settings.zoho_trainer_module_api_name or "").strip()
+        or "Trainers"
+    )
+    if url_module and _zoho_url_segment_is_api_module(url_module):
+        mod = url_module
+    else:
+        mod = fallback_mod
+        if url_module and not _zoho_url_segment_is_api_module(url_module):
+            logger.info(
+                "ZOHO_URL_MODULE_IGNORED url_segment=%s using_api_module=%s record_id=%s",
+                url_module,
+                mod,
+                record_id,
+            )
+
     return ZohoCrmLinkRef(record_id=record_id, module_api_name=mod, source_url=raw)
 
 
