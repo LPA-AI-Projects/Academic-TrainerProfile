@@ -47,8 +47,11 @@ from .schemas import (
 )
 from .services.bitrix_outbound import (
     OutboundTaskComment,
+    build_trainer_profile_reply_message,
     flatten_bitrix_form,
+    is_trainer_profile_bot_reply,
     parse_outbound_event,
+    post_task_chat_reply,
     resolve_outbound_task_comment,
     route_task_comment,
 )
@@ -396,6 +399,46 @@ def _build_generate_profile_response(
         google_drive_pdf_url=_parsed_drive_url(first),
         google_drive_upload_error=_parsed_drive_err(first),
         jobs=items,
+    )
+
+
+def _bitrix_reply_entries_from_jobs(jobs: list[TrainerProfileJob]) -> list[dict[str, str | None]]:
+    entries: list[dict[str, str | None]] = []
+    for job in jobs:
+        if (job.status or "").strip() != "completed":
+            continue
+        parsed = job.parsed_inputs if isinstance(job.parsed_inputs, dict) else {}
+        gp = job.generated_profile if isinstance(job.generated_profile, dict) else {}
+        name = str(gp.get("trainer_display_name") or "").strip()
+        trainer_id = str(parsed.get("trainer_unique_code") or "").strip() or _trainer_unique_from_job(job)
+        drive_url = (_parsed_drive_url(job) or "").strip()
+        entries.append(
+            {
+                "name": name or None,
+                "trainer_id": trainer_id or None,
+                "drive_url": drive_url or None,
+            }
+        )
+    return entries
+
+
+def _maybe_reply_bitrix_task_chat(
+    task_id: str,
+    *,
+    jobs: list[TrainerProfileJob],
+    action: str,
+) -> None:
+    """Post name / trainer_id / Drive links back into the Bitrix task chat."""
+    entries = [e for e in _bitrix_reply_entries_from_jobs(jobs) if (e.get("drive_url") or "").strip()]
+    if not entries:
+        return
+    message = build_trainer_profile_reply_message(action=action, entries=entries)
+    posted = post_task_chat_reply(task_id, message)
+    logger.info(
+        "API_BITRIX_REPLY task_id=%s posted=%s entry_count=%s",
+        task_id,
+        posted,
+        len(entries),
     )
 
 
@@ -825,6 +868,10 @@ async def bitrix_outbound_webhook(request: Request, db: Session = Depends(get_db
     if not comment.strip():
         return {"status": "ignored", "message": "Empty task comment.", "task_id": task_id}
 
+    if is_trainer_profile_bot_reply(comment):
+        logger.info("API_BITRIX_COMMENT_BOT_REPLY task_id=%s", task_id)
+        return {"status": "ignored", "message": "Own bot reply.", "task_id": task_id}
+
     routed = route_task_comment(comment)
     logger.info("API_BITRIX_COMMENT_ROUTED task_id=%s action=%s", task_id, routed.action)
 
@@ -835,7 +882,9 @@ async def bitrix_outbound_webhook(request: Request, db: Session = Depends(get_db
             refine=routed.refine.refine_instruction,
         )
         try:
-            return await _refine_profile_impl(refine_payload, request, db)
+            response, job = await _refine_profile_impl(refine_payload, request, db)
+            _maybe_reply_bitrix_task_chat(task_id, jobs=[job], action="refined")
+            return response
         except HTTPException as exc:
             logger.warning(
                 "API_BITRIX_REFINE_FAILED task_id=%s status=%s detail=%s",
@@ -895,12 +944,16 @@ async def bitrix_outbound_webhook(request: Request, db: Session = Depends(get_db
             detail=exception_public_detail(exc, app_env=settings.app_env),
         ) from exc
 
-    return _build_generate_profile_response(
+    response = _build_generate_profile_response(
         request,
         jobs,
         zoho_record_id=task_id,
         empty_message="No trainer profiles were generated (no Zoho trainer had a CV file on record).",
     )
+    completed = [j for j in jobs if (j.status or "").strip() == "completed"]
+    if completed:
+        _maybe_reply_bitrix_task_chat(task_id, jobs=completed, action="generated")
+    return response
 
 
 @app.post(
@@ -1039,7 +1092,7 @@ async def _parse_refine_payload_from_request(request: Request) -> RefineProfileR
 
 async def _refine_profile_impl(
     payload: RefineProfileRequest, request: Request, db: Session
-) -> GenerateProfileResponse:
+) -> tuple[GenerateProfileResponse, TrainerProfileJob]:
     """
     Refine the stored brochure profile (partial JSON merge per instruction), then re-run PDF/Drive/Zoho.
 
@@ -1167,13 +1220,16 @@ async def _refine_profile_impl(
     db.refresh(job)
     export = _export_links_for_job(request, job.id)
     logger.info("API_REFINE_DONE job_id=%s zoho_record_id=%s pdf_url=%s", job.id, job.zoho_record_id, export.pdf_url)
-    return GenerateProfileResponse(
-        status=job.status,
-        zoho_record_id=job.zoho_record_id,
-        pdf_url=export.pdf_url,
-        generated_profile=job.generated_profile,
-        google_drive_pdf_url=_parsed_drive_url(job),
-        google_drive_upload_error=_parsed_drive_err(job),
+    return (
+        GenerateProfileResponse(
+            status=job.status,
+            zoho_record_id=job.zoho_record_id,
+            pdf_url=export.pdf_url,
+            generated_profile=job.generated_profile,
+            google_drive_pdf_url=_parsed_drive_url(job),
+            google_drive_upload_error=_parsed_drive_err(job),
+        ),
+        job,
     )
 
 
@@ -1185,7 +1241,8 @@ async def _refine_profile_impl(
 )
 async def refine_profile(request: Request, db: Session = Depends(get_db)):
     payload = await _parse_refine_payload_from_request(request)
-    return await _refine_profile_impl(payload, request, db)
+    response, _job = await _refine_profile_impl(payload, request, db)
+    return response
 
 
 @app.post(
@@ -1218,7 +1275,8 @@ async def refine_profile_for_parent_zoho(
         title=body.title,
         profile_name=body.profile_name,
     )
-    return await _refine_profile_impl(payload, request, db)
+    response, _job = await _refine_profile_impl(payload, request, db)
+    return response
 
 
 def _form_upload_temp_dir() -> Path:

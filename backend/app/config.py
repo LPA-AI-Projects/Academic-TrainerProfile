@@ -244,6 +244,18 @@ class Settings(BaseSettings):
     bitrix_outline_field_api_name: str | None = None
     bitrix_zoho_links_field_api_name: str | None = None
     bitrix_course_name_field_api_name: str | None = None
+    # After generate/refine via Bitrix outbound webhook, post PDF links back to the task chat.
+    bitrix_reply_to_chat: bool = True
+
+    @field_validator("bitrix_reply_to_chat", mode="before")
+    @classmethod
+    def coerce_bitrix_reply_to_chat(cls, v: object) -> bool:
+        if isinstance(v, str):
+            s = v.strip().lower()
+            if s in ("0", "false", "no", "off", ""):
+                return False
+            return s in ("1", "true", "yes", "on")
+        return bool(v) if v is not None else True
 
     @field_validator("bitrix_entity_type_id", mode="before")
     @classmethod

@@ -156,6 +156,20 @@ def _has_trainer_profile_header(text: str) -> bool:
     return "trainerprofile" in low.replace(" ", "") and "trainer_profile" not in low
 
 
+TRAINER_PROFILE_BOT_REPLY_PREFIX = "Trainer profile "
+
+
+def is_trainer_profile_bot_reply(comment: str | None) -> bool:
+    """True for our own task-chat success replies (ignore to avoid webhook loops)."""
+    text = (comment or "").strip()
+    if not text.startswith(TRAINER_PROFILE_BOT_REPLY_PREFIX):
+        return False
+    first_line = text.split("\n", 1)[0].strip()
+    if not first_line.endswith(" successfully."):
+        return False
+    return bool(re.search(r"(?im)^\s*trainer_id\s*:", text))
+
+
 def is_trainer_profile_generate_command(comment: str | None) -> bool:
     """
     Generate when comment includes ``outline:`` + ``trainers:`` (optionally prefixed with ``trainer_profile``).
@@ -231,6 +245,8 @@ def parse_trainer_profile_refine_command(comment: str | None) -> ParsedTrainerPr
 
 def route_task_comment(comment: str | None) -> TaskCommentRoute:
     """Classify one task chat comment — generate vs refine vs ignore."""
+    if is_trainer_profile_bot_reply(comment):
+        return TaskCommentRoute(action="ignore")
     if is_trainer_profile_generate_command(comment):
         return TaskCommentRoute(action="generate")
     refined = parse_trainer_profile_refine_command(comment)
@@ -413,3 +429,80 @@ def fetch_task_comment_text(task_id: str | int, message_id: str | int) -> str:
 
     logger.warning("BITRIX_COMMENT empty task_id=%s message_id=%s", tid, mid)
     return ""
+
+
+def build_trainer_profile_reply_message(
+    *,
+    action: str,
+    entries: list[dict[str, str | None]],
+) -> str:
+    """
+    Build a task-chat reply: header plus per-trainer name, trainer_id, and Google Drive link.
+
+    ``entries`` items: ``name``, ``trainer_id``, ``drive_url``.
+    """
+    header = f"Trainer profile {action} successfully."
+    blocks: list[str] = []
+    for row in entries:
+        name = (row.get("name") or "").strip()
+        trainer_id = (row.get("trainer_id") or "").strip()
+        drive_url = (row.get("drive_url") or "").strip()
+        if not drive_url:
+            continue
+        lines: list[str] = []
+        if name:
+            lines.append(f"name: {name}")
+        if trainer_id:
+            lines.append(f"trainer_id: {trainer_id}")
+        lines.append(f"Google Drive: {drive_url}")
+        blocks.append("\n".join(lines))
+    if not blocks:
+        return header
+    return header + "\n\n" + "\n\n".join(blocks)
+
+
+def post_task_chat_reply(task_id: str | int, message: str) -> bool:
+    """Post a reply into the Bitrix task chat / comment feed (inbound webhook REST)."""
+    settings = get_settings()
+    if not settings.bitrix_reply_to_chat:
+        logger.info("BITRIX_REPLY_SKIP disabled bitrix_reply_to_chat=false task_id=%s", task_id)
+        return False
+    if not (settings.bitrix_rest_webhook_url or "").strip():
+        logger.info("BITRIX_REPLY_SKIP no BITRIX_REST_WEBHOOK_URL task_id=%s", task_id)
+        return False
+
+    msg = (message or "").strip()
+    if not msg:
+        return False
+
+    tid = int(task_id)
+    try:
+        bitrix_call(
+            "task.commentitem.add",
+            {"TASKID": tid, "FIELDS": {"POST_MESSAGE": msg}},
+        )
+        logger.info("BITRIX_REPLY_OK method=task.commentitem.add task_id=%s chars=%s", tid, len(msg))
+        return True
+    except Exception as exc:
+        logger.warning("BITRIX_REPLY_TASK_COMMENT_FAILED task_id=%s err=%s", tid, exc)
+
+    chat_id = _fetch_task_chat_id(tid)
+    if chat_id is None:
+        logger.warning("BITRIX_REPLY_SKIP no chat_id task_id=%s", tid)
+        return False
+    for dialog_id in (f"chat{chat_id}", f"TASKS_TASK_{tid}"):
+        try:
+            bitrix_call(
+                "im.message.add",
+                {"DIALOG_ID": dialog_id, "MESSAGE": msg},
+            )
+            logger.info(
+                "BITRIX_REPLY_OK method=im.message.add dialog=%s task_id=%s chars=%s",
+                dialog_id,
+                tid,
+                len(msg),
+            )
+            return True
+        except Exception as exc:
+            logger.warning("BITRIX_REPLY_IM_FAILED dialog=%s task_id=%s err=%s", dialog_id, tid, exc)
+    return False
