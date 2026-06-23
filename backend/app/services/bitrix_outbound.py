@@ -22,7 +22,7 @@ from fastapi import HTTPException
 
 from ..config import get_settings
 from ..utils.logger import get_logger
-from .bitrix_service import bitrix_call
+from .bitrix_service import bitrix_call, message_contains_zoho_trainer_crm_link
 
 logger = get_logger(__name__)
 
@@ -180,7 +180,7 @@ def is_trainer_profile_generate_command(comment: str | None) -> bool:
     low = text.lower()
     has_outline = _has_outline_block(text)
     has_trainers = _has_trainers_block(text)
-    has_zoho = "zoho.com/crm" in low
+    has_zoho = "zoho.com/crm" in low or message_contains_zoho_trainer_crm_link(text)
     has_drive = "drive.google.com" in low or "docs.google.com" in low
 
     if has_outline and (has_trainers or has_zoho):

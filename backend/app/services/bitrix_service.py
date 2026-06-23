@@ -52,6 +52,63 @@ def _sanitize_extracted_url(url: str) -> str:
     return u.rstrip("/.,;)]")
 
 
+_ZOHO_CRM_TAB_RECORD_PATH = re.compile(r"(?i)/crm/(org\d+)/tab/([^/]+)/(\d+)")
+
+
+def is_zoho_trainer_crm_url(url: str) -> bool:
+    """True for standard crm.zoho.com tab links and Zoho One cxapp CRM tab links."""
+    raw = _sanitize_extracted_url((url or "").strip())
+    if not raw:
+        return False
+    low = raw.lower()
+    if "crm.zoho.com/crm" in low:
+        return True
+    if "one.zoho.com" in low:
+        path = urlparse(raw).path or raw
+        return bool(_ZOHO_CRM_TAB_RECORD_PATH.search(path))
+    return False
+
+
+def normalize_zoho_trainer_profile_url(url: str) -> str:
+    """
+    Normalize Zoho One cxapp CRM tab links to standard ``crm.zoho.com`` URLs (Bitrix layer only).
+
+    Example::
+
+      https://one.zoho.com/.../cxapp/crm/org901534269/tab/CustomModule1/7026232000023625041
+    → https://crm.zoho.com/crm/org901534269/tab/CustomModule1/7026232000023625041
+    """
+    raw = _sanitize_extracted_url((url or "").strip())
+    if not raw:
+        return raw
+    if "crm.zoho.com/crm" in raw.lower():
+        return raw.rstrip("/")
+    path = urlparse(raw).path or raw
+    m = _ZOHO_CRM_TAB_RECORD_PATH.search(path)
+    if not m:
+        return raw
+    org_id, tab_module, record_id = m.group(1), m.group(2), m.group(3)
+    normalized = f"https://crm.zoho.com/crm/{org_id}/tab/{tab_module}/{record_id}"
+    if normalized != raw.rstrip("/"):
+        logger.info("ZOHO_URL_NORMALIZED from=%s to=%s", raw[:120], normalized)
+    return normalized
+
+
+def normalize_zoho_trainer_profile_urls(urls: list[str]) -> list[str]:
+    out: list[str] = []
+    for u in urls:
+        if not is_zoho_trainer_crm_url(u):
+            continue
+        norm = normalize_zoho_trainer_profile_url(u)
+        if norm and norm not in out:
+            out.append(norm)
+    return out
+
+
+def message_contains_zoho_trainer_crm_link(text: str) -> bool:
+    return any(is_zoho_trainer_crm_url(u) for u in _clean_quoted_urls(text or ""))
+
+
 def _clean_quoted_urls(blob: str) -> list[str]:
     blob = normalize_bitrix_chat_text(blob or "")
     urls = _URL_RE.findall(blob)
@@ -230,8 +287,11 @@ def extract_zoho_links_from_bitrix_item(item: dict[str, Any], field_name: str) -
     urls.extend(_urls_from_bitrix_field(raw))
     zoho_only: list[str] = []
     for u in urls:
-        if "zoho.com/crm" in u.lower() and u not in zoho_only:
-            zoho_only.append(u)
+        if not is_zoho_trainer_crm_url(u):
+            continue
+        norm = normalize_zoho_trainer_profile_url(u)
+        if norm not in zoho_only:
+            zoho_only.append(norm)
     return zoho_only
 
 
@@ -290,7 +350,7 @@ def parse_zoho_crm_url(url: str, *, default_module: str | None = None) -> ZohoCr
     ``ZOHO_TRAINER_MODULE_API_NAME`` (default ``Trainers``) when the URL only contains
     a UI tab name like ``CustomModule1``.
     """
-    raw = _sanitize_extracted_url((url or "").strip())
+    raw = normalize_zoho_trainer_profile_url(_sanitize_extracted_url((url or "").strip()))
     if not raw or "zoho.com/crm" not in raw.lower():
         return None
     parsed = urlparse(raw)
@@ -389,9 +449,7 @@ def parse_trainerprofile_chat_message(text: str) -> ParsedTrainerProfileChat:
 
     trainers_block = re.search(r"(?is)(?:^|\n)\s*trainers?\s*:\s*\n?(.*)$", raw)
     if trainers_block:
-        zoho_urls = [
-            u for u in _clean_quoted_urls(trainers_block.group(1)) if "zoho.com/crm" in u.lower()
-        ]
+        zoho_urls = normalize_zoho_trainer_profile_urls(_clean_quoted_urls(trainers_block.group(1)))
 
     outline_m = re.search(
         r"(?im)^\s*Outline(?:Link)?\s*:\s*(.+)$",
@@ -406,11 +464,11 @@ def parse_trainerprofile_chat_message(text: str) -> ParsedTrainerProfileChat:
         raw,
     )
     if zoho_m and not zoho_urls:
-        zoho_urls = [u for u in _clean_quoted_urls(zoho_m.group(1)) if "zoho.com/crm" in u.lower()]
+        zoho_urls = normalize_zoho_trainer_profile_urls(_clean_quoted_urls(zoho_m.group(1)))
 
     # Fallback: any Zoho CRM links anywhere in the message
     if not zoho_urls:
-        zoho_urls = [u for u in _clean_quoted_urls(raw) if "zoho.com/crm" in u.lower()]
+        zoho_urls = normalize_zoho_trainer_profile_urls(_clean_quoted_urls(raw))
 
     # Fallback outline: first Google Drive / Docs link not already used as Zoho
     if not outline_url:
@@ -456,9 +514,10 @@ def merge_webhook_payload(
     parsed = parse_trainerprofile_chat_message(message or "")
     outline_url = (outline or "").strip() or parsed.outline_url
     zoho_blob = (trainer_zoho_links or "").strip()
-    zoho_urls = _clean_quoted_urls(zoho_blob) if zoho_blob else list(parsed.zoho_trainer_urls)
     if zoho_blob:
-        zoho_urls = [u for u in zoho_urls if "zoho.com/crm" in u.lower()] or zoho_urls
+        zoho_urls = normalize_zoho_trainer_profile_urls(_clean_quoted_urls(zoho_blob))
+    else:
+        zoho_urls = normalize_zoho_trainer_profile_urls(list(parsed.zoho_trainer_urls))
     rid = (bitrix_record_id or "").strip() or parsed.bitrix_record_id
     et: int | None = parsed.entity_type_id
     if entity_type_id is not None and str(entity_type_id).strip().isdigit():
