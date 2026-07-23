@@ -252,6 +252,7 @@ class BitrixGenerateProfileRequest(BaseModel):
     message: str | None = None
     # Explicit overrides (take precedence over parsed chat lines).
     outline: str | None = Field(default=None, max_length=2048)
+    outlines: list[str] = Field(default_factory=list)
     trainer_zoho_links: str | None = Field(
         default=None,
         max_length=8000,

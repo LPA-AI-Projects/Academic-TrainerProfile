@@ -1492,12 +1492,27 @@ async def generate_from_bitrix_chat(
             "trainer_zoho_links in the webhook body."
         )
 
-    outline_url = (parsed.outline_url or "").strip()
+    # outline_url = (parsed.outline_url or "").strip()
+    outline_urls = []
+
+    if parsed.outline_urls:
+        outline_urls.extend(parsed.outline_urls)
+
+    elif parsed.outline_url:
+        outline_urls.append(parsed.outline_url)
+
+    outline_urls = [
+        u.strip()
+        for u in outline_urls
+        if u.strip()
+    ]
+
     if not outline_url:
         raise ValueError(
             "No outline URL found. Provide Outline (Google Drive link) in the chat message, "
             "outline in the webhook body, or configure BITRIX_OUTLINE_FIELD_API_NAME on the Bitrix record."
         )
+
 
     trainer_mod_default = (settings.zoho_trainer_module_api_name or "Trainers").strip()
     cv_f = (settings.zoho_trainer_cv_field_api_name or "Trainer_CV").strip()
@@ -1515,10 +1530,29 @@ async def generate_from_bitrix_chat(
     temp_paths: list[Path] = []
 
     try:
-        outline_path = download_drive_file_to_path(outline_url, _temp_cv_dir())
+        # outline_path = download_drive_file_to_path(outline_url, _temp_cv_dir())
+        # temp_paths.append(outline_path)
+        # outline_text = read_text_from_path(str(outline_path))
+        # outline_blob = [outline_text]
+
+    outline_blob = []
+    stored_outline_refs = []
+
+    for outline_url in outline_urls:
+
+        outline_path = download_drive_file_to_path(
+            outline_url,
+            _temp_cv_dir()
+        )
+
         temp_paths.append(outline_path)
-        outline_text = read_text_from_path(str(outline_path))
-        outline_blob = [outline_text]
+
+        outline_text = read_text_from_path(
+            str(outline_path)
+        )
+
+        outline_blob.append(outline_text)
+        stored_outline_refs.append(f"gdrive://{outline_url}")
         logger.info(
             "GEN_BITRIX_OUTLINE_DOWNLOADED parent_id=%s char_count=%s path=%s",
             parent_id,
@@ -1586,7 +1620,8 @@ async def generate_from_bitrix_chat(
                     company_name=company,
                     outline_text=_outline_snapshot(outline_trimmed),
                     cv_path=f"zoho://record/{module}/{cv_f}/{cv_file_id}",
-                    course_outline_paths=[f"gdrive://{outline_url}"],
+                    # course_outline_paths=[f"gdrive://{outline_url}"],
+                    course_outline_paths=stored_outline_refs,
                     provider=payload.provider or settings.default_provider,
                     model_name=payload.model_name or settings.default_model,
                     status="processing",

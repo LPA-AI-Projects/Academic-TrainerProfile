@@ -127,6 +127,7 @@ class ParsedTrainerProfileChat:
     """Structured fields extracted from a Bitrix chat / automation message."""
 
     outline_url: str | None
+    outline_urls: list[str]
     zoho_trainer_urls: list[str]
     bitrix_record_id: str | None = None
     entity_type_id: int | None = None
@@ -433,7 +434,7 @@ def parse_trainerprofile_chat_message(text: str) -> ParsedTrainerProfileChat:
     raw = (text or "").strip()
     raw = normalize_bitrix_chat_text(raw)
     if not raw:
-        return ParsedTrainerProfileChat(outline_url=None, zoho_trainer_urls=[])
+        return ParsedTrainerProfileChat(outline_url=None,outline_urls=[], zoho_trainer_urls=[])
 
     outline_url: str | None = None
     zoho_urls: list[str] = []
@@ -494,6 +495,7 @@ def parse_trainerprofile_chat_message(text: str) -> ParsedTrainerProfileChat:
 
     return ParsedTrainerProfileChat(
         outline_url=outline_url,
+        outline_urls=outline_urls,
         zoho_trainer_urls=zoho_urls,
         bitrix_record_id=bitrix_id,
         entity_type_id=entity_type_id,
@@ -512,7 +514,14 @@ def merge_webhook_payload(
 ) -> ParsedTrainerProfileChat:
     """Merge explicit webhook form/JSON fields with optional chat message body."""
     parsed = parse_trainerprofile_chat_message(message or "")
-    outline_url = (outline or "").strip() or parsed.outline_url
+    # outline_url = (outline or "").strip() or parsed.outline_url
+    outline_urls = []
+    if outline:
+        outline_urls.extend(_clean_quoted_urls(outline))
+    outline_urls.extend(parsed.outline_urls)
+    outline_urls = list(dict.fromkeys(outline_urls))
+    outline_url = outline_urls[0] if outline_urls else None
+
     zoho_blob = (trainer_zoho_links or "").strip()
     if zoho_blob:
         zoho_urls = normalize_zoho_trainer_profile_urls(_clean_quoted_urls(zoho_blob))
@@ -525,6 +534,7 @@ def merge_webhook_payload(
     cn = (course_name or "").strip() or parsed.course_name
     return ParsedTrainerProfileChat(
         outline_url=outline_url,
+        outline_urls=outline_urls,
         zoho_trainer_urls=zoho_urls,
         bitrix_record_id=rid,
         entity_type_id=et,

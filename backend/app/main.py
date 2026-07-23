@@ -748,6 +748,10 @@ async def _parse_bitrix_webhook_body(request: Request) -> BitrixGenerateProfileR
 
     message = _first_str("message", "MESSAGE", "text", "TEXT", "chat_message", "CHAT_MESSAGE")
     outline = _first_str("outline", "Outline", "outline_url", "OUTLINE")
+    outlines = raw.get("outlines")
+
+    if outlines is None:
+        outlines = []
     zoho_links = _first_str(
         "trainer_zoho_links",
         "TrainerZohoLink",
@@ -778,6 +782,7 @@ async def _parse_bitrix_webhook_body(request: Request) -> BitrixGenerateProfileR
             entity_type_id=entity_type_id,
             message=message,
             outline=outline,
+            outlines=outlines,
             trainer_zoho_links=zoho_links,
             course_name=_first_str("course_name", "CourseName", "product"),
             company_name=_first_str("company_name", "CompanyName"),
