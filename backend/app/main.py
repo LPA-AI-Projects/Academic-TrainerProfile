@@ -748,10 +748,12 @@ async def _parse_bitrix_webhook_body(request: Request) -> BitrixGenerateProfileR
 
     message = _first_str("message", "MESSAGE", "text", "TEXT", "chat_message", "CHAT_MESSAGE")
     outline = _first_str("outline", "Outline", "outline_url", "OUTLINE")
-    outlines = raw.get("outlines")
-
-    if outlines is None:
-        outlines = []
+    outlines_raw = raw.get("outlines")
+    outlines: list[str] = []
+    if isinstance(outlines_raw, list):
+        outlines = [str(x).strip() for x in outlines_raw if str(x).strip()]
+    elif isinstance(outlines_raw, str) and outlines_raw.strip():
+        outlines = _parse_outline_paths_form(outlines_raw)
     zoho_links = _first_str(
         "trainer_zoho_links",
         "TrainerZohoLink",
@@ -918,9 +920,10 @@ async def bitrix_outbound_webhook(request: Request, db: Session = Depends(get_db
         course_name=None,
     )
     logger.info(
-        "API_BITRIX_GENERATE_FROM_COMMENT task_id=%s outline=%s zoho_links=%s",
+        "API_BITRIX_GENERATE_FROM_COMMENT task_id=%s outline=%s outline_count=%s zoho_links=%s",
         task_id,
         bool(merged.outline_url),
+        len(merged.outline_urls),
         len(merged.zoho_trainer_urls),
     )
 
@@ -1007,15 +1010,17 @@ async def bitrix_generate_profile_direct(request: Request, db: Session = Depends
     merged = merge_webhook_payload(
         message=body.message,
         outline=body.outline,
+        outlines=body.outlines,
         trainer_zoho_links=body.trainer_zoho_links,
         bitrix_record_id=rid,
         entity_type_id=body.entity_type_id,
         course_name=body.course_name,
     )
     logger.info(
-        "API_BITRIX_PARSED bitrix_record_id=%s outline=%s zoho_link_count=%s",
+        "API_BITRIX_PARSED bitrix_record_id=%s outline=%s outline_count=%s zoho_link_count=%s",
         rid,
         bool(merged.outline_url),
+        len(merged.outline_urls),
         len(merged.zoho_trainer_urls),
     )
 

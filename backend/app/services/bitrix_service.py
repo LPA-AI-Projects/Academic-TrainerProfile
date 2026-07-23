@@ -434,9 +434,10 @@ def parse_trainerprofile_chat_message(text: str) -> ParsedTrainerProfileChat:
     raw = (text or "").strip()
     raw = normalize_bitrix_chat_text(raw)
     if not raw:
-        return ParsedTrainerProfileChat(outline_url=None,outline_urls=[], zoho_trainer_urls=[])
+        return ParsedTrainerProfileChat(outline_url=None, outline_urls=[], zoho_trainer_urls=[])
 
     outline_url: str | None = None
+    outline_urls: list[str] = []
     zoho_urls: list[str] = []
 
     # Slash command blocks: outline: / trainers:
@@ -445,7 +446,11 @@ def parse_trainerprofile_chat_message(text: str) -> ParsedTrainerProfileChat:
         raw,
     )
     if outline_block:
-        outline_urls = _clean_quoted_urls(outline_block.group(1))
+        outline_urls = [
+            u
+            for u in _clean_quoted_urls(outline_block.group(1))
+            if "drive.google.com" in u.lower() or "docs.google.com" in u.lower()
+        ]
         outline_url = outline_urls[0] if outline_urls else None
 
     trainers_block = re.search(r"(?is)(?:^|\n)\s*trainers?\s*:\s*\n?(.*)$", raw)
@@ -456,8 +461,12 @@ def parse_trainerprofile_chat_message(text: str) -> ParsedTrainerProfileChat:
         r"(?im)^\s*Outline(?:Link)?\s*:\s*(.+)$",
         raw,
     )
-    if outline_m and not outline_url:
-        outline_urls = _clean_quoted_urls(outline_m.group(1))
+    if outline_m and not outline_urls:
+        outline_urls = [
+            u
+            for u in _clean_quoted_urls(outline_m.group(1))
+            if "drive.google.com" in u.lower() or "docs.google.com" in u.lower()
+        ]
         outline_url = outline_urls[0] if outline_urls else None
 
     zoho_m = re.search(
@@ -471,13 +480,16 @@ def parse_trainerprofile_chat_message(text: str) -> ParsedTrainerProfileChat:
     if not zoho_urls:
         zoho_urls = normalize_zoho_trainer_profile_urls(_clean_quoted_urls(raw))
 
-    # Fallback outline: first Google Drive / Docs link not already used as Zoho
-    if not outline_url:
+    # Fallback outlines: all Google Drive / Docs links in the message
+    if not outline_urls:
         for u in _clean_quoted_urls(raw):
             low = u.lower()
             if "drive.google.com" in low or "docs.google.com" in low:
-                outline_url = u
-                break
+                if u not in outline_urls:
+                    outline_urls.append(u)
+        outline_url = outline_urls[0] if outline_urls else None
+    else:
+        outline_url = outline_urls[0]
 
     bitrix_id: str | None = None
     entity_type_id: int | None = None
@@ -511,13 +523,24 @@ def merge_webhook_payload(
     bitrix_record_id: str | None,
     entity_type_id: int | str | None,
     course_name: str | None,
+    outlines: list[str] | None = None,
 ) -> ParsedTrainerProfileChat:
     """Merge explicit webhook form/JSON fields with optional chat message body."""
     parsed = parse_trainerprofile_chat_message(message or "")
-    # outline_url = (outline or "").strip() or parsed.outline_url
-    outline_urls = []
+    outline_urls: list[str] = []
     if outline:
-        outline_urls.extend(_clean_quoted_urls(outline))
+        outline_urls.extend(
+            u
+            for u in _clean_quoted_urls(outline)
+            if "drive.google.com" in u.lower() or "docs.google.com" in u.lower()
+        )
+    if outlines:
+        for item in outlines:
+            outline_urls.extend(
+                u
+                for u in _clean_quoted_urls(str(item or ""))
+                if "drive.google.com" in u.lower() or "docs.google.com" in u.lower()
+            )
     outline_urls.extend(parsed.outline_urls)
     outline_urls = list(dict.fromkeys(outline_urls))
     outline_url = outline_urls[0] if outline_urls else None
@@ -562,10 +585,13 @@ def enrich_from_bitrix_record(parsed: ParsedTrainerProfileChat) -> ParsedTrainer
         et = int(default_et)
 
     item = fetch_crm_item(et, rid)
-    outline_url = parsed.outline_url
+    outline_urls = list(parsed.outline_urls or [])
     outline_field = (settings.bitrix_outline_field_api_name or "").strip()
-    if not outline_url and outline_field:
-        outline_url = extract_outline_url_from_bitrix_item(item, outline_field)
+    if not outline_urls and outline_field:
+        found = extract_outline_url_from_bitrix_item(item, outline_field)
+        if found:
+            outline_urls.append(found)
+    outline_url = outline_urls[0] if outline_urls else parsed.outline_url
 
     zoho_urls = list(parsed.zoho_trainer_urls)
     zoho_field = (settings.bitrix_zoho_links_field_api_name or "").strip()
@@ -581,6 +607,7 @@ def enrich_from_bitrix_record(parsed: ParsedTrainerProfileChat) -> ParsedTrainer
 
     return ParsedTrainerProfileChat(
         outline_url=outline_url,
+        outline_urls=outline_urls,
         zoho_trainer_urls=zoho_urls,
         bitrix_record_id=rid,
         entity_type_id=et,

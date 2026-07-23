@@ -1492,36 +1492,31 @@ async def generate_from_bitrix_chat(
             "trainer_zoho_links in the webhook body."
         )
 
-    # outline_url = (parsed.outline_url or "").strip()
-    outline_urls = []
-
+    outline_urls: list[str] = []
     if parsed.outline_urls:
         outline_urls.extend(parsed.outline_urls)
-
     elif parsed.outline_url:
         outline_urls.append(parsed.outline_url)
 
-    outline_urls = [
-        u.strip()
-        for u in outline_urls
-        if u.strip()
-    ]
+    outline_urls = [u.strip() for u in outline_urls if (u or "").strip()]
+    # Deduplicate while preserving order
+    outline_urls = list(dict.fromkeys(outline_urls))
 
-    if not outline_url:
+    if not outline_urls:
         raise ValueError(
             "No outline URL found. Provide Outline (Google Drive link) in the chat message, "
             "outline in the webhook body, or configure BITRIX_OUTLINE_FIELD_API_NAME on the Bitrix record."
         )
-
 
     trainer_mod_default = (settings.zoho_trainer_module_api_name or "Trainers").strip()
     cv_f = (settings.zoho_trainer_cv_field_api_name or "Trainer_CV").strip()
     code_f = (settings.zoho_trainer_unique_code_field_api_name or "Trainer_Unique_Code").strip()
 
     logger.info(
-        "GEN_BITRIX_START parent_id=%s outline_url=%s zoho_trainer_count=%s entity_type_id=%s",
+        "GEN_BITRIX_START parent_id=%s outline_count=%s outline_url=%s zoho_trainer_count=%s entity_type_id=%s",
         parent_id,
-        outline_url[:120],
+        len(outline_urls),
+        outline_urls[0][:120],
         len(zoho_refs),
         parsed.entity_type_id,
     )
@@ -1530,35 +1525,21 @@ async def generate_from_bitrix_chat(
     temp_paths: list[Path] = []
 
     try:
-        # outline_path = download_drive_file_to_path(outline_url, _temp_cv_dir())
-        # temp_paths.append(outline_path)
-        # outline_text = read_text_from_path(str(outline_path))
-        # outline_blob = [outline_text]
+        outline_blob: list[str] = []
+        stored_outline_refs: list[str] = []
 
-    outline_blob = []
-    stored_outline_refs = []
-
-    for outline_url in outline_urls:
-
-        outline_path = download_drive_file_to_path(
-            outline_url,
-            _temp_cv_dir()
-        )
-
-        temp_paths.append(outline_path)
-
-        outline_text = read_text_from_path(
-            str(outline_path)
-        )
-
-        outline_blob.append(outline_text)
-        stored_outline_refs.append(f"gdrive://{outline_url}")
-        logger.info(
-            "GEN_BITRIX_OUTLINE_DOWNLOADED parent_id=%s char_count=%s path=%s",
-            parent_id,
-            len(outline_text),
-            outline_path,
-        )
+        for outline_url in outline_urls:
+            outline_path = download_drive_file_to_path(outline_url, _temp_cv_dir())
+            temp_paths.append(outline_path)
+            outline_text = read_text_from_path(str(outline_path))
+            outline_blob.append(outline_text)
+            stored_outline_refs.append(f"gdrive://{outline_url}")
+            logger.info(
+                "GEN_BITRIX_OUTLINE_DOWNLOADED parent_id=%s char_count=%s path=%s",
+                parent_id,
+                len(outline_text),
+                outline_path,
+            )
 
         drive_course = (
             (payload.course_name or "").strip()
@@ -1633,7 +1614,8 @@ async def generate_from_bitrix_chat(
                         "historical_outline_blocks": len(historical_outlines),
                         "bitrix_record_id": parent_id,
                         "bitrix_entity_type_id": parsed.entity_type_id,
-                        "outline_source_url": outline_url,
+                        "outline_source_url": outline_urls[0],
+                        "outline_source_urls": list(outline_urls),
                         "trainer_record_id": trainer_id,
                         "trainer_module": module,
                         "trainer_unique_code": heading_label,
