@@ -5,8 +5,8 @@ psycopg2-binary
 python-dotenv
 pydantic-settings
 alembic
-openai
-anthropic
+openai>=2.0,<3
+anthropic>=0.69,<1
 pypdf
 cryptography>=3.1
 python-docx
