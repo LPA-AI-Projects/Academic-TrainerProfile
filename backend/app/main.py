@@ -87,6 +87,18 @@ async def request_context_middleware(request: Request, call_next):
     request.state.request_id = request_id
     try:
         response = await call_next(request)
+    except ClientDisconnect:
+        # Caller aborted before the body finished arriving (proxy/webhook timeout, cancelled retry).
+        logger.warning(
+            "API_CLIENT_DISCONNECT path=%s method=%s request_id=%s",
+            request.url.path,
+            request.method,
+            request_id,
+        )
+        return JSONResponse(
+            status_code=499,
+            content={"detail": "Client disconnected before the request body was received.", "request_id": request_id},
+        )
     except Exception as exc:
         log_operation_error(
             logger,
@@ -151,6 +163,22 @@ async def logged_request_validation_handler(
     return JSONResponse(
         status_code=422,
         content={"detail": errors, "request_id": rid} if rid else {"detail": errors},
+    )
+
+
+@app.exception_handler(ClientDisconnect)
+async def logged_client_disconnect_handler(request: Request, exc: ClientDisconnect) -> JSONResponse:
+    """Aborted uploads are a client-side condition, not a server fault — no traceback, no 500."""
+    rid = _request_id(request)
+    logger.warning(
+        "API_CLIENT_DISCONNECT path=%s method=%s request_id=%s",
+        request.url.path,
+        request.method,
+        rid,
+    )
+    return JSONResponse(
+        status_code=499,
+        content={"detail": "Client disconnected before the request body was received.", "request_id": rid},
     )
 
 
@@ -583,7 +611,20 @@ async def generate_profile(request: Request, db: Session = Depends(get_db)):
             detail="Unsupported Media Type. Use application/x-www-form-urlencoded.",
         )
 
-    form = await request.form()
+    try:
+        form = await request.form()
+    except ClientDisconnect:
+        logger.warning(
+            "API_GENERATE_CLIENT_DISCONNECT path=%s request_id=%s ua=%.200s",
+            request.url.path,
+            _request_id(request),
+            (request.headers.get("user-agent") or ""),
+        )
+        raise HTTPException(
+            status_code=400,
+            detail="Client disconnected before the request body was received.",
+        ) from None
+
     form_data = {str(k): str(v).strip() for k, v in form.items()}
     zid = (form_data.get("zoho_record_id") or form_data.get("record_id") or form_data.get("id") or "").strip()
     if not zid:
